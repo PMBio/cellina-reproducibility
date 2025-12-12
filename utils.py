@@ -5,7 +5,6 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import scanpy as sc
 
 from tqdm.auto import tqdm
 from sklearn.linear_model import LogisticRegression
