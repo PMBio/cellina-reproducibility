@@ -43,6 +43,7 @@ def evaluate_models(
     alpha_type,
     alpha_values,
     target_col,
+    latent_key='z',
     root_dir="trained",
 ):
     """Evaluate trained models via linear classifier on latent space."""
@@ -54,12 +55,12 @@ def evaluate_models(
 
             model = CellinaModel.load(save_path, adata)
 
-            adata.obsm['z'] = model.get_latent_representation(latent_key='z')
+            adata.obsm[latent_key] = model.get_latent_representation(latent_key=latent_key)
 
-            X_train = adata[~adata.obs["is_holdout"]].obsm['z']
+            X_train = adata[~adata.obs["is_holdout"]].obsm[latent_key]
             y_train = adata[~adata.obs["is_holdout"]].obs[target_col].values
 
-            X_test = adata[adata.obs["is_holdout"]].obsm['z']
+            X_test = adata[adata.obs["is_holdout"]].obsm[latent_key]
             y_test = adata[adata.obs["is_holdout"]].obs[target_col].values
 
             clf = LogisticRegression(max_iter=500, solver="lbfgs")
