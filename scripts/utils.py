@@ -26,12 +26,12 @@ def set_seed(seed):
 
 
 
-def plot_results(df, alpha_type, target_col):
+def plot_results(df, lambda_type, target_col):
     plt.figure(figsize=(6,4))
-    sns.boxplot(data=df, x="alpha", y="score", width=0.5)
-    sns.stripplot(data=df, x="alpha", y="score", color="black", size=5, jitter=True)
-    plt.title(f"F1-score across seeds ({alpha_type}, target={target_col})")
-    plt.xlabel(f"{alpha_type} value")
+    sns.boxplot(data=df, x="lambda", y="score", width=0.5)
+    sns.stripplot(data=df, x="lambda", y="score", color="black", size=5, jitter=True)
+    plt.title(f"F1-score across seeds ({lambda_type}, target={target_col})")
+    plt.xlabel(f"{lambda_type} value")
     plt.ylabel("F1-score")
     plt.show()
 
@@ -39,18 +39,18 @@ def plot_results(df, alpha_type, target_col):
 def evaluate_models(
     adata,
     seeds,
-    alpha_type,
-    alpha_values,
+    lambda_type,
+    lambda_values,
     target_col,
     latent_key='z',
     root_dir="trained",
 ):
     """Evaluate trained models via linear classifier on latent space."""
-    results = {alpha: [] for alpha in alpha_values}
+    results = {lambda_: [] for lambda_ in lambda_values}
 
-    for alpha in tqdm(alpha_values, desc=f"Evaluating ({alpha_type})"):
+    for lambda_ in tqdm(lambda_values, desc=f"Evaluating ({lambda_type})"):
         for seed in seeds:
-            save_path = f"{root_dir}/{alpha_type}_{alpha}_seed_{seed}"
+            save_path = f"{root_dir}/{lambda_type}_{lambda_}_seed_{seed}"
 
             model = CellinaModel.load(save_path, adata)
 
@@ -67,12 +67,12 @@ def evaluate_models(
 
             y_pred = clf.predict(X_test)
             score = f1_score(y_test, y_pred, average="macro")
-            results[alpha].append(score)
+            results[lambda_].append(score)
 
     # convert to tidy DataFrame
     df = pd.DataFrame([
-        {"alpha": alpha, "score": score}
-        for alpha, scores in results.items()
+        {"lambda": lambda_, "score": score}
+        for lambda_, scores in results.items()
         for score in scores
     ])
 
