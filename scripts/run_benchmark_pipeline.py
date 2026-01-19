@@ -16,7 +16,7 @@ from scvi.train._callbacks import SaveCheckpoint
 import torch
 
 METHODS = {
-    "SCVI": run_scvi_model,
+    # "SCVI": run_scvi_model,
     # "SCANVI": run_scanvi_model,
     # "scVIVA": run_scviva_model,
     "CELLINA": run_cellina_model,
@@ -157,13 +157,17 @@ class BenchmarkPipelineRunner:
                     'early_stopping': True,
                     'enable_checkpointing':True,
                     'callbacks':[
-                    SaveCheckpoint(monitor="elbo_validation",
+                    SaveCheckpoint(monitor='validation_loss',#"elbo_validation",
                                    dirpath=dirpath,
                                    load_best_on_end=True),
                     ],
             }
-                
-
+            extra_args = {}
+            if name == "CELLINA":
+                extra_arg_keys = ['classifier_lambda', 'save_lambda_in_key']
+                for k in extra_arg_keys:
+                    if getattr(self, k, None) is not None:
+                        extra_args[k] = getattr(self, k)
             method(
                 adata=adata,
                 batch_key=self.batch_key,
@@ -178,7 +182,8 @@ class BenchmarkPipelineRunner:
                 K_NN=self.K_NN,
                 model_kwargs=model_kwargs,
                 train_kwargs=train_kwargs,
-                batch_size=self.batch_size
+                batch_size=self.batch_size,
+                **extra_args
             )
 
 def main(
