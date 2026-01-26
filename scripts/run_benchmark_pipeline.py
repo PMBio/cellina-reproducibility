@@ -16,9 +16,9 @@ from scvi.train._callbacks import SaveCheckpoint
 import torch
 
 METHODS = {
-    # "SCVI": run_scvi_model,
-    # "SCANVI": run_scanvi_model,
-    # "scVIVA": run_scviva_model,
+    #"SCVI": run_scvi_model,
+    #"SCANVI": run_scanvi_model,
+    #"scVIVA": run_scviva_model,
     "CELLINA": run_cellina_model,
     # "PCA": run_pca_baseline,
     # "SIMVI": run_simvi_in_subprocess,
@@ -164,7 +164,7 @@ class BenchmarkPipelineRunner:
             }
             extra_args = {}
             if name == "CELLINA":
-                extra_arg_keys = ['classifier_lambda', 'save_lambda_in_key']
+                extra_arg_keys = ['classifier_lambda', 'discriminator_lambda', 'save_lambda_in_key']
                 for k in extra_arg_keys:
                     if getattr(self, k, None) is not None:
                         extra_args[k] = getattr(self, k)
