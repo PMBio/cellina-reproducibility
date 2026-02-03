@@ -232,7 +232,7 @@ def precision_at_k(vec_true, vec_pred, k=20, use_abs=True):
     return len(set_true & set_pred) / len(set_true)
 
 
-def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False):
+def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False, use_recon=False):
     """
     For each cell type (adata in cf_adatas), compute:
       - gt_vec = log2(mean(target).X - mean(control).X)  <-- uses normalized adata.X
@@ -250,12 +250,16 @@ def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False):
         # get counts as dense array
         counts = _to_dense(adata.layers["counts"])  # shape: (n_cells, n_genes)
 
-        # normalize counts so each row sums to 1
-        # X_all = np.asarray(adata.obsm.get('recon_x'))
-        X_all = counts / (counts.sum(axis=1, keepdims=True) + 1e-8)
+        # get ground truth control, target either from raw counts or reconstructed counts
+        if use_recon:
+            X_all = _to_dense(adata.obsm.get("recon_x"))
+        else:
+            # normalize counts so each row sums to 1
+            X_all = counts / (counts.sum(axis=1, keepdims=True) + 1e-8)
+        # model-normalized counterfactuals (may be None)
         recon_all = _to_dense(
             adata.obsm.get("recon_x")
-        )  # model-normalized counterfactuals (may be None)
+        )
 
         # masks
         mask_control = groups == "control"
@@ -280,17 +284,7 @@ def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False):
             if mask_target.sum() > 0
             else np.zeros(X_all.shape[1])
         )
-        mean_cf = None
-        if recon_all is not None and mask_cf.sum() > 0:
-            # recon_all rows are aligned with adata.obs order
-            mean_cf = recon_all[mask_cf].mean(axis=0)
-        else:
-            # fallback: if recon_x missing, try to use X for CF (not recommended)
-            mean_cf = (
-                X_all[mask_cf].mean(axis=0)
-                if mask_cf.sum() > 0
-                else np.zeros(X_all.shape[1])
-            )
+        mean_cf = recon_all[mask_cf].mean(axis=0)
 
         # compute gt and cf: observed perturbed (target) minus real control, and counterfactual minus real control
         if method == "lfc":
