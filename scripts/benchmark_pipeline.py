@@ -187,9 +187,10 @@ def run_cellina_model(
     train_kwargs={},
     batch_size=256,
     classifier_lambda=1.0,
+    discriminator_lambda=1.0,
     save_lambda_in_key=False,
 ):
-    print(f"Running Cellina with classifier_lambda={classifier_lambda}")
+    print(f"Running Cellina with classifier_lambda={classifier_lambda}, discriminator_lambda={discriminator_lambda}")
     CellinaModel.setup_anndata(adata,
                            batch_key=batch_key,
                            labels_key=celltype_key, 
@@ -199,8 +200,8 @@ def run_cellina_model(
     model = CellinaModel(
             adata, n_latent=n_latent,
             n_layers=n_layers,
-            classifier_lambda=classifier_lambda, 
-            discriminator_lambda=1.,
+            classifier_lambda=classifier_lambda,
+            discriminator_lambda=discriminator_lambda,
             condition_on_intrinsic=False,
             gene_likelihood="nb",
             **model_kwargs
@@ -215,9 +216,9 @@ def run_cellina_model(
         batch_size=batch_size,
         **train_kwargs,
     )
-    basal_key = f"Cellina_Basal" if not save_lambda_in_key else f"Cellina_Basal_{classifier_lambda}"
-    spatial_key = f"Cellina_Spatial" if not save_lambda_in_key else f"Cellina_Spatial_{classifier_lambda}"
-    shifted_key = f"Cellina_Shifted" if not save_lambda_in_key else f"Cellina_Shifted_{classifier_lambda}"
+    basal_key = f"Cellina_Basal" if not save_lambda_in_key else f"Cellina_Basal_{classifier_lambda}_{discriminator_lambda}"
+    spatial_key = f"Cellina_Spatial" if not save_lambda_in_key else f"Cellina_Spatial_{classifier_lambda}_{discriminator_lambda}"
+    shifted_key = f"Cellina_Shifted" if not save_lambda_in_key else f"Cellina_Shifted_{classifier_lambda}_{discriminator_lambda}"
     adata.obsm[basal_key] = model.get_latent_representation(latent_key='z')
     adata.obsm[spatial_key] = model.get_latent_representation(latent_key='s')
     adata.obsm[shifted_key] = model.get_latent_representation()
