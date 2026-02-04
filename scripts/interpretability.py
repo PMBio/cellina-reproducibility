@@ -1,189 +1,166 @@
-import numpy as np
 import torch
-import anndata as ad
-import pandas as pd
-
+import numpy as np
+from captum.attr import DeepLift
+from scvi import REGISTRY_KEYS
+from typing import Optional, List
 from tqdm import tqdm
-from captum.attr import IntegratedGradients, DeepLift, DeepLiftShap
+
+import torch.nn as nn
+from cellina._constants import SPATIAL_X_KEY
 
 
-class IGModelWrapper(torch.nn.Module):
-    """Wrap model so forward returns selected latent dims of w."""
+class SpatialToGeneWrapper(nn.Module):
+    """
+    Wrapper to expose:
+      spatial_x  --> reconstructed gene expression (px_rate)
 
-    def __init__(self, model):
+    Everything else (x, batch_index) is treated as fixed context.
+    """
+
+    def __init__(self, module):
         super().__init__()
-        self.model = model
+        self.module = module
+        self.module.eval()
 
-    def forward(self, neighbor_emb, x, y, d, b):
-        result = self.model.vae.forward(x=x, y=y, d=d, b=b, neighbor_emb=neighbor_emb)
-        return result[0][0]
+    def forward(self, spatial_x, x, batch_index):
+        """
+        spatial_x: (B, n_spatial)
+        x: counts
+        batch_index: batch indices
 
-def run_attribution(
-    model,
-    dl,
-    target_dims,
-    n_cell_types,
-    method="IG",  # "IG", "DeepLift", or "DeepLiftShap"
-    baseline_mode="zeros",
-    n_steps=50,  # used only for IG
-    n_baselines=10,  # used only for DeepLiftShap
-    device="cpu",
-    mask_neighbor_types=None,
-    n_spatial_features_per_ct=None,
-    side_information_key="neighborhood_pseudobulks",
-    label_col="label",
-    domain_col="domain",
-    batch_col="batch",
-    reduce=True,
-):
-    """
-    Unified attribution function for IG, DeepLift, DeepLiftShap.
-    """
-    wrapper = IGModelWrapper(model).to(device)
-    # Choose attribution method
-    if method == "IG":
-        explainer = IntegratedGradients(wrapper)
-    elif method == "DeepLift":
-        explainer = DeepLift(wrapper)
-    elif method == "DeepLiftShap":
-        explainer = DeepLiftShap(wrapper)
-    else:
-        raise ValueError(f"Unsupported method: {method}")
+        returns:
+            px_rate: (B, n_genes)
+        """
 
-    side_key = side_information_key
-    #n_spatial_features_per_ct = dataset.adata.obsm[side_key].shape[1]//n_cell_types
-    if reduce:
-        att_sums = {d: np.zeros((n_cell_types, n_spatial_features_per_ct)) for d in target_dims}
-    else:
-        att_sums = {d: [] for d in target_dims}
-
-
-    for batch in tqdm(dl):
-        x, y, d, b = (
-            batch.X.float(),
-            batch.obs[label_col],
-            batch.obs[domain_col],
-            batch.obs[batch_col],
+        # --- run inference with spatial_x overridden
+        # We reproduce _get_inference_input but replace spatial_x
+        inference_outputs = self.module.inference(
+            x=x,
+            spatial_x=spatial_x,
+            batch_index=batch_index,
         )
-        neighbor_emb = batch.obsm[side_key]
-        current_batch_size = neighbor_emb.shape[0]
+
+        # --- generative step
+        generative_outputs = self.module.generative(
+            shifted=inference_outputs["shifted"],
+            library=inference_outputs["library"],
+            batch_index=batch_index,
+        )
+
+        return generative_outputs["px_rate"]
 
 
-        # Mask non-target neighbor types
-        if mask_neighbor_types is not None:
-            mask = np.ones((n_cell_types, n_spatial_features_per_ct))
-            for ct in range(n_cell_types):
-                if ct not in mask_neighbor_types:
-                    mask[ct, :] = 0
-            mask = torch.tensor(mask.flatten(), dtype=torch.float32, device=device)
-            neighbor_emb = neighbor_emb * mask
-        
-        # Prepare baseline(s)
-        if method in ["IG", "DeepLift"]:
-            baseline = torch.zeros_like(neighbor_emb, device=device)
-        elif method == "DeepLiftShap":
-            if baseline_mode == "zeros":
-                baseline = torch.zeros((n_baselines, neighbor_emb.shape[1]), device=device)
-            elif baseline_mode == "random":
-                idxs = np.random.choice(neighbor_emb.shape[0], n_baselines, replace=True)
-                baseline = neighbor_emb[idxs]
-            else:
-                raise NotImplementedError
-
-        # Compute attributions per target dim
-        for gene_idx in target_dims:
-            kwargs = {
-                "inputs": neighbor_emb,
-                "additional_forward_args": (x, y, d, b),
-                "target": gene_idx,
-            }
-            if method == "IG":
-                kwargs["baselines"] = baseline
-                kwargs["n_steps"] = n_steps
-                kwargs["internal_batch_size"]: max(1024, current_batch_size)  # type: ignore
-            else:
-                kwargs["baselines"] = baseline
-
-            atts = explainer.attribute(**kwargs)
-            atts_np = atts.detach().cpu().numpy()
-            atts_np = atts_np.reshape(
-                current_batch_size, n_cell_types, n_spatial_features_per_ct
-            )
-            if reduce:
-                att_sums[gene_idx] += atts_np.sum(axis=0)
-            else:
-                att_sums[gene_idx].append(atts_np)
-
-    # Stack all collected attributions if not reduced
-    if not reduce:
-        for gene_idx in target_dims:
-            att_sums[gene_idx] = np.concatenate(att_sums[gene_idx], axis=0)
-
-    return att_sums
-
-
-def attributions_to_adata(att_sums, adata, target_dims):
+@torch.no_grad()
+def run_deeplift(
+    model,
+    adata,
+    indices: Optional[List[int]] = None,
+    target_genes: Optional[List[int]] = None,
+    batch_size: int = 128,
+    baseline: str = "zeros",
+    device: Optional[torch.device] = None,
+) -> torch.Tensor:
     """
-    Convert per-cell attribution results from `run_attribution(reduce=False)` into an AnnData object.
+    Compute DeepLift attributions from spatial features to reconstructed genes.
 
     Parameters
     ----------
-    att_sums : dict
-        Dictionary {gene_idx: np.ndarray of shape (n_cells, n_cell_types, n_spatial_features_per_ct)}.
-    adata : AnnData
-        Original AnnData containing corresponding cells in obs and uns['spatial_var'].
-    target_dims : list[int]
-        List of gene indices that correspond to the target genes.
+    model
+        Trained scvi model (CellinaModule wrapped in scvi.model object)
+    adata
+        AnnData already subsetted
+    target_genes
+        List of gene indices to compute attributions for. If None, compute all genes
+    batch_size
+        Batch size
+    baseline
+        "zeros" or "mean" for spatial features
+    device
+        Torch device. Defaults to model device
 
     Returns
     -------
-    AnnData
-        AnnData where:
-        - X: (n_cells, len(target_dims) * len(adata.uns['spatial_var']))
-        - obs: copied from input `adata.obs`
-        - var_names: geneName_spatialVarName
+    attributions
+        Tensor of shape (n_cells, n_spatial_features, n_genes)
     """
-    # --- Basic checks ---
-    if "spatial_var" not in adata.uns:
-        raise ValueError("adata.uns['spatial_var'] must contain spatial feature names.")
-    
-    spatial_features = list(adata.uns["spatial_var"])
-    gene_names = list(adata.var_names[target_dims])
 
-    # --- Infer shapes from first entry ---
-    first_key = target_dims[0]
-    first_attr = att_sums[first_key]
-    n_cells = first_attr.shape[0]
-    n_features_per_gene = np.prod(first_attr.shape[1:])  # flatten (cell_types × spatial_features)
+    module = model.module
+    module.eval()
 
-    # --- Allocate target matrix once ---
-    X = np.empty((n_cells, len(target_dims) * n_features_per_gene), dtype=np.float32)
+    if device is None:
+        device = next(module.parameters()).device
 
-    # --- Fill in one gene at a time (in place) ---
-    for i, gene_idx in enumerate(target_dims):
-        start = i * n_features_per_gene
-        end = start + n_features_per_gene
-        X[:, start:end] = att_sums[gene_idx].reshape(n_cells, -1)
-
-    # --- Build var names like "GeneA^feature1" ---
-    # infer number of total spatial features per cell (n_cell_types * n_spatial_features_per_ct)
-    n_spatial_features_total = n_features_per_gene
-    if n_spatial_features_total != len(spatial_features):
-        # fallback if spatial_features per cell type — flatten pattern
-        spatial_features = [f"spatial_{i}" for i in range(n_spatial_features_total)]
-
-    var_names = []
-    for gene in gene_names:
-        for sf in spatial_features:
-            var_names.append(f"{gene}^{sf}")
-
-    # --- Construct AnnData ---
-    adata_att = ad.AnnData(
-        X=X,
-        obs=adata.obs.copy(),
-        var=pd.DataFrame(index=var_names),
+    # --- scvi-style dataloader
+    dataloader = model._make_data_loader(
+        adata=adata,
+        batch_size=batch_size,
+        indices=indices,
+        shuffle=False,
     )
-    adata_att.uns["target_genes"] = gene_names
-    adata_att.uns["spatial_var"] = spatial_features
+    n_genes_total = adata.n_vars
 
-    return adata_att
+    if target_genes is None:
+        target_genes = list(range(n_genes_total))
+
+    all_attrs = []
+
+    # --- loop over genes to attribute individually
+    for gene_idx in tqdm(target_genes):
+        wrapper = SpatialToGeneWrapper(model.module)
+        deeplift = DeepLift(wrapper)
+        gene_attrs = []
+
+        for tensors in dataloader:
+            x = tensors[REGISTRY_KEYS.X_KEY].to(device)
+            spatial_x = tensors[SPATIAL_X_KEY].to(device)
+            batch_index = tensors[REGISTRY_KEYS.BATCH_KEY].to(device)
+
+            # baseline
+            if baseline == "zeros":
+                spatial_base = torch.zeros_like(spatial_x)
+            elif baseline == "mean":
+                spatial_base = spatial_x.mean(dim=0, keepdim=True).expand_as(spatial_x)
+            else:
+                raise ValueError("baseline must be 'zeros' or 'mean'")
+
+            spatial_x.requires_grad_(True)
+
+            # --- attribute gene
+            attrs = deeplift.attribute(
+                inputs=spatial_x,  # (B, n_spatial)
+                baselines=spatial_base,  # same shape
+                additional_forward_args=(x, batch_index),
+                target=gene_idx,
+            )
+
+            # pick only this gene
+            attrs_gene = attrs  # already (B, n_spatial), forward returns all genes, Captum computes grads per input
+            gene_attrs.append(attrs_gene.cpu())
+
+        gene_attrs_tensor = torch.cat(gene_attrs, dim=0)  # (n_cells, n_spatial)
+        all_attrs.append(gene_attrs_tensor.unsqueeze(-1))  # (n_cells, n_spatial, 1)
+
+    attributions = torch.cat(all_attrs, dim=-1)  # (n_cells, n_spatial, n_genes)
+    return attributions
+
+
+def add_deeplift_to_obs(
+    adata,
+    gene,
+    agg="l2",
+    key="deeplift_spatial",
+):
+    # gene_idx = adata.var_names.get_loc(gene)
+    gene_idx = adata.uns[key]["gene_names"].index(gene)  # check gene was computed
+    X = adata.obsm[key][:, :, gene_idx]
+
+    if agg == "sum_abs":
+        vals = np.abs(X).sum(axis=1)
+    elif agg == "mean":
+        vals = X.mean(axis=1)
+    elif agg == "l2":
+        vals = np.linalg.norm(X, axis=1)
+    else:
+        raise ValueError(f"Unknown agg: {agg}")
+
+    adata.obs[f"{key}_{gene}_{agg}"] = vals
