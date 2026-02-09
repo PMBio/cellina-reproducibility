@@ -9,7 +9,77 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import pearsonr, spearmanr
 
-from cellina._utils import make_counterfactual_adata
+#from cellina._utils import make_counterfactual_adata
+
+
+import numpy as np
+
+
+def make_counterfactual_adata(
+    adata,
+    indices_basal,
+    indices_counterfactual,
+    spatial_column,
+    sample: bool = True,
+    random_state: int = 0,
+):
+    """
+    Create a counterfactual AnnData keeping everything from the original
+    except .obsm[spatial_column], which is replaced with sampled spatial counts.
+
+    Parameters
+    ----------
+    adata
+        Original AnnData.
+    indices_basal
+        Indices of basal/control cells to keep in .X and obs.
+    indices_counterfactual
+        Indices of counterfactual cells to generate spatial counts from.
+    spatial_column
+        Column in .obsm containing spatial information (counts of neighbors).
+    sample
+        If True, generate NB-distributed counts per gene.
+        If False, sample rows from existing neighboring cells with replacement.
+    random_state
+        Seed for reproducibility.
+
+    Returns
+    -------
+    adata_cf : AnnData
+        Copy of original AnnData with updated .obsm[spatial_column] for basal cells.
+    """
+    rng = np.random.default_rng(random_state)
+
+    # 1. Subset basal cells
+    adata_cf = adata[indices_basal].copy()
+
+    # 2. Get spatial counts of counterfactual cells
+    spatial_counts_cf = adata.obsm[spatial_column][indices_counterfactual]
+
+    n_basal = len(indices_basal)
+    n_genes = spatial_counts_cf.shape[1]
+
+    # 3. Sampling: if true, compute representative NB dist and sample from it
+    if sample:
+        mu = spatial_counts_cf.mean(axis=0)
+        var = spatial_counts_cf.var(axis=0)
+        theta = np.maximum((mu**2) / (var - mu + 1e-8), 1e-8)
+
+        spatial_counts_basal_cf = rng.negative_binomial(
+            n=theta, p=theta / (theta + mu), size=(n_basal, n_genes)
+        )
+    # Otherwise just sample from existing neighbors with replacement
+    else:
+        indices = rng.integers(low=0, high=spatial_counts_cf.shape[0], size=n_basal)
+        spatial_counts_basal_cf = spatial_counts_cf[indices]
+
+    # 4. Replace spatial_column in .obsm
+    adata_cf.obsm[spatial_column] = spatial_counts_basal_cf
+
+    # 5. Keep original target cells to compare later if needed
+    adata_cf.uns["target_cells"] = adata[indices_counterfactual].X.copy()
+
+    return adata_cf
 
 
 def prepare_matrix(M, n_pca=50, standardize=False):
@@ -65,38 +135,86 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
     for celltype in tqdm(adata[adata.obs["is_holdout"]].obs[labels_key].cat.categories):
         mask_control = (~adata.obs["is_holdout"]) & (adata.obs[labels_key] == celltype)
         idx_control = np.where(mask_control.values)[0]
+        adata_control = adata[mask_control].copy()
+
         mask_target = (adata.obs["is_holdout"]) & (adata.obs[labels_key] == celltype)
         idx_target = np.where(mask_target.values)[0]
+        adata_target = adata[mask_target].copy()
 
-        adata_cf = make_counterfactual_adata(
-            adata,
-            indices_basal=idx_control,
-            indices_counterfactual=idx_target,
-            spatial_column="spatial_x",
-            sample=False,
-        )
+        if model_class == 'cellina':
+            adata_cf = make_counterfactual_adata(
+                adata,
+                indices_basal=idx_control,
+                indices_counterfactual=idx_target,
+                spatial_column="spatial_x",
+                sample=False,
+            )
+        else:
+            adata_cf = adata_control.copy()  # CPA and scvi don't use spatial info, so just copy control as placeholder
+            adata_cf.obs['perturbation'] = 'perturbed' # for CPA, swap control with perturbed label
 
+        """
+        reconstruct = model.predict if model_class == 'cpa' else model.get_normalized_expression
         # Get normalized counterfactual expression
-        adata_cf.obsm["recon_x"] = model.get_normalized_expression(adata_cf)
+        adata_cf.obsm["recon_x"] = reconstruct(adata_cf)
 
         # Get normalized ground truth control expressions
-        adata_control = adata[mask_control].copy()
-        adata_control.obsm["recon_x"] = model.get_normalized_expression(adata_control)
+        adata_control.obsm["recon_x"] = reconstruct(adata_control)
 
         # Get normalized ground truth target expressions
-        adata_target = adata[mask_target].copy()
-        adata_target.obsm["recon_x"] = model.get_normalized_expression(adata_target)
+        adata_target.obsm["recon_x"] = reconstruct(adata_target)
+        """
+        def _to_array(x):
+            # convert sparse/dense to numpy array
+            if x is None:
+                return None
+            toarray = getattr(x, "toarray", None)
+            if callable(toarray):
+                return toarray()
+            return np.asarray(x)
+
+        def _reconstruct(adata_obj):
+            # CPA: predict returns None and writes to adata_obj.obsm['CPA_pred']
+            if model_class == "cpa":
+                out = model.predict(adata_obj)  # may be None
+                # common obsm keys CPA might use; extend if needed
+                if ("CPA_pred") in adata_obj.obsm:
+                    recon = _to_array(adata_obj.obsm["CPA_pred"])
+                    # normalize counts so each row sums to 1
+                    X = recon / (recon.sum(axis=1, keepdims=True) + 1e-8)
+                    return X
+                # if predict returned an array-like, use it
+                if out is not None:
+                    return _to_array(out)
+                # fallback: nothing found
+                raise RuntimeError(
+                    "CPA predict produced no return and no known obsm key found; "
+                    "inspect adata_obj.obsm keys: " + ", ".join(list(adata_obj.obsm.keys()))
+                )
+            # other models: expect an array-like return
+            else:
+                out = None
+                # scvi / cellina use get_normalized_expression
+                if hasattr(model, "get_normalized_expression"):
+                    out = model.get_normalized_expression(adata_obj)
+                elif hasattr(model, "predict"):
+                    out = model.predict(adata_obj)
+                return _to_array(out)
+
+        # Get normalized counterfactual / control / target expressions as numpy arrays
+        adata_cf.obsm["recon_x"] = _reconstruct(adata_cf)
+        adata_control.obsm["recon_x"] = _reconstruct(adata_control)
+        adata_target.obsm["recon_x"] = _reconstruct(adata_target)
 
         # Get latent representations if applicable
-        adata_cf.obsm[f"{model_class}_latent"] = model.get_latent_representation(
-            adata=adata_cf
-        )
-        adata_control.obsm[f"{model_class}_latent"] = model.get_latent_representation(
-            adata=adata_control
-        )
-        adata_target.obsm[f"{model_class}_latent"] = model.get_latent_representation(
-            adata=adata_target
-        )
+        latents_cf = model.get_latent_representation(adata=adata_cf)
+        adata_cf.obsm[f"{model_class}_latent"] = latents_cf if model_class != 'cpa' else latents_cf['latent_after'].X
+
+        latents_control = model.get_latent_representation(adata=adata_control)
+        adata_control.obsm[f"{model_class}_latent"] = latents_control if model_class != 'cpa' else latents_control['latent_after'].X
+
+        latents_target = model.get_latent_representation(adata=adata_target)
+        adata_target.obsm[f"{model_class}_latent"] = latents_target if model_class != 'cpa' else latents_target['latent_after'].X
 
         if model_class == "cellina":
             for latent_key in ["z", "s"]:
