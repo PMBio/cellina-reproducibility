@@ -374,6 +374,7 @@ def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False, use
             X_all = _to_dense(adata.obsm.get("recon_x"))
         else:
             # normalize counts so each row sums to 1
+            counts = np.log1p(counts)
             X_all = counts / (counts.sum(axis=1, keepdims=True) + 1e-8)
         # model-normalized counterfactuals (may be None)
         recon_all = _to_dense(
