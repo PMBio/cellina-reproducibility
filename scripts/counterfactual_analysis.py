@@ -228,6 +228,7 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
                     adata=adata_target, latent_key=latent_key
                 )
 
+        adata_cf = adata_target.copy()
         adata_cf.obs["group"] = "counterfactual"
         adata_control.obs["group"] = "control"
         adata_target.obs["group"] = "target"
