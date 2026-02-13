@@ -12,7 +12,7 @@ from sklearn.metrics import f1_score
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.utils import shuffle
 
-from cellina import CellinaModel
+
 
 
 def set_seed(seed):
@@ -48,6 +48,8 @@ def evaluate_models(
     root_dir="trained",
 ):
     """Evaluate trained models via linear classifier on latent space."""
+    from cellina import CellinaModel
+    
     results = {lambda_: [] for lambda_ in lambda_values}
 
     for lambda_ in tqdm(lambda_values, desc=f"Evaluating ({lambda_type})"):
