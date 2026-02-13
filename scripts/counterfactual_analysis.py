@@ -9,11 +9,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import pearsonr, spearmanr
 
-#from cellina._utils import make_counterfactual_adata
-
-
-import numpy as np
-
 
 def make_counterfactual_adata(
     adata,
@@ -130,7 +125,15 @@ def permutation_test(X, Y, n_perms=1000, seed=None):
 
 
 # NOTE: Bad for memory, a lot of redundancy in adatas - reimplement later
-def get_counterfactual_preds(model, adata, labels_key, model_class):
+def get_model_preds(
+    model,
+    adata,
+    labels_key,
+    model_class,
+    counterfactual=False,
+    return_normalized=True,
+    batch_size=4096,
+):
     results = {}
     for celltype in tqdm(adata[adata.obs["is_holdout"]].obs[labels_key].cat.categories):
         mask_control = (~adata.obs["is_holdout"]) & (adata.obs[labels_key] == celltype)
@@ -141,7 +144,7 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
         idx_target = np.where(mask_target.values)[0]
         adata_target = adata[mask_target].copy()
 
-        if model_class == 'cellina':
+        if model_class == "cellina":
             adata_cf = make_counterfactual_adata(
                 adata,
                 indices_basal=idx_control,
@@ -150,20 +153,10 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
                 sample=False,
             )
         else:
-            adata_cf = adata_control.copy()  # CPA and scvi don't use spatial info, so just copy control as placeholder
-            adata_cf.obs['perturbation'] = 'perturbed' # for CPA, swap control with perturbed label
+            adata_cf = (
+                adata_target.copy()
+            )  # CPA and scvi don't use spatial info, so just copy target
 
-        """
-        reconstruct = model.predict if model_class == 'cpa' else model.get_normalized_expression
-        # Get normalized counterfactual expression
-        adata_cf.obsm["recon_x"] = reconstruct(adata_cf)
-
-        # Get normalized ground truth control expressions
-        adata_control.obsm["recon_x"] = reconstruct(adata_control)
-
-        # Get normalized ground truth target expressions
-        adata_target.obsm["recon_x"] = reconstruct(adata_target)
-        """
         def _to_array(x):
             # convert sparse/dense to numpy array
             if x is None:
@@ -176,12 +169,14 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
         def _reconstruct(adata_obj):
             # CPA: predict returns None and writes to adata_obj.obsm['CPA_pred']
             if model_class == "cpa":
-                out = model.predict(adata_obj)  # may be None
+                out = model.predict(adata_obj, batch_size=batch_size)  # may be None
                 # common obsm keys CPA might use; extend if needed
                 if ("CPA_pred") in adata_obj.obsm:
-                    recon = _to_array(adata_obj.obsm["CPA_pred"])
+                    X = _to_array(adata_obj.obsm["CPA_pred"])
                     # normalize counts so each row sums to 1
-                    X = recon / (recon.sum(axis=1, keepdims=True) + 1e-8)
+                    if return_normalized:
+                        X = np.log1p(X)
+                        X = X / (X.sum(axis=1, keepdims=True) + 1e-8)
                     return X
                 # if predict returned an array-like, use it
                 if out is not None:
@@ -189,32 +184,41 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
                 # fallback: nothing found
                 raise RuntimeError(
                     "CPA predict produced no return and no known obsm key found; "
-                    "inspect adata_obj.obsm keys: " + ", ".join(list(adata_obj.obsm.keys()))
+                    "inspect adata_obj.obsm keys: "
+                    + ", ".join(list(adata_obj.obsm.keys()))
                 )
             # other models: expect an array-like return
             else:
-                out = None
                 # scvi / cellina use get_normalized_expression
                 if hasattr(model, "get_normalized_expression"):
-                    out = model.get_normalized_expression(adata_obj)
-                elif hasattr(model, "predict"):
-                    out = model.predict(adata_obj)
+                    library_size = 1.0 if return_normalized else "latent"
+                    out = model.get_normalized_expression(
+                        adata_obj, library_size=library_size, batch_size=batch_size
+                    )
                 return _to_array(out)
 
         # Get normalized counterfactual / control / target expressions as numpy arrays
-        adata_cf.obsm["recon_x"] = _reconstruct(adata_cf)
         adata_control.obsm["recon_x"] = _reconstruct(adata_control)
         adata_target.obsm["recon_x"] = _reconstruct(adata_target)
+        adata_cf.obsm["recon_x"] = _reconstruct(adata_cf)
 
         # Get latent representations if applicable
-        latents_cf = model.get_latent_representation(adata=adata_cf)
-        adata_cf.obsm[f"{model_class}_latent"] = latents_cf if model_class != 'cpa' else latents_cf['latent_after'].X
-
         latents_control = model.get_latent_representation(adata=adata_control)
-        adata_control.obsm[f"{model_class}_latent"] = latents_control if model_class != 'cpa' else latents_control['latent_after'].X
+        adata_control.obsm[f"{model_class}_latent"] = (
+            latents_control
+            if model_class != "cpa"
+            else latents_control["latent_after"].X
+        )
 
         latents_target = model.get_latent_representation(adata=adata_target)
-        adata_target.obsm[f"{model_class}_latent"] = latents_target if model_class != 'cpa' else latents_target['latent_after'].X
+        adata_target.obsm[f"{model_class}_latent"] = (
+            latents_target if model_class != "cpa" else latents_target["latent_after"].X
+        )
+
+        latents_cf = model.get_latent_representation(adata=adata_cf)
+        adata_cf.obsm[f"{model_class}_latent"] = (
+            latents_cf if model_class != "cpa" else latents_cf["latent_after"].X
+        )
 
         if model_class == "cellina":
             for latent_key in ["z", "s"]:
@@ -228,7 +232,8 @@ def get_counterfactual_preds(model, adata, labels_key, model_class):
                     adata=adata_target, latent_key=latent_key
                 )
 
-        adata_cf = adata_target.copy()
+        if not counterfactual:  # Return counterfactual if requested, otherwise return reconstructed target. Here to ensure compat with CPA
+            adata_cf = adata_target.copy()
         adata_cf.obs["group"] = "counterfactual"
         adata_control.obs["group"] = "control"
         adata_target.obs["group"] = "target"
@@ -351,7 +356,15 @@ def precision_at_k(vec_true, vec_pred, k=20, use_abs=True):
     return len(set_true & set_pred) / len(set_true)
 
 
-def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False, use_recon=False):
+def get_de_correlations(
+    cf_adatas,
+    k=50,
+    eps=1e-8,
+    method="lfc",
+    plot=False,
+    use_recon=False,
+    normalize_counts=False,
+):
     """
     For each cell type (adata in cf_adatas), compute:
       - gt_vec = log2(mean(target).X - mean(control).X)  <-- uses normalized adata.X
@@ -366,45 +379,36 @@ def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False, use
         groups = adata.obs["group"].values
         var_names = np.asarray(adata.var_names)
 
-        # get counts as dense array
-        counts = _to_dense(adata.layers["counts"])  # shape: (n_cells, n_genes)
-
-        # get ground truth control, target either from raw counts or reconstructed counts
-        if use_recon:
-            X_all = _to_dense(adata.obsm.get("recon_x"))
-        else:
-            # normalize counts so each row sums to 1
-            counts = np.log1p(counts)
-            X_all = counts / (counts.sum(axis=1, keepdims=True) + 1e-8)
-        # model-normalized counterfactuals (may be None)
-        recon_all = _to_dense(
-            adata.obsm.get("recon_x")
-        )
-
         # masks
         mask_control = groups == "control"
         mask_target = groups == "target"
         mask_cf = groups == "counterfactual"
 
-        if mask_control.sum() == 0:
-            # can't compute without real control baseline
-            continue
-        if mask_target.sum() == 0 and mask_cf.sum() == 0:
-            # nothing to compare
-            continue
+        def _normalize_counts(x, eps=1e-8):
+            return x / (x.sum(axis=1, keepdims=True) + eps)
+
+        # Counterfactuals/predictions are always model-generated
+        recon_all = _to_dense(adata.obsm.get("recon_x").copy())
+        recon_all = np.log1p(recon_all)
+        recon_all = (
+            _normalize_counts(recon_all, eps=eps) if normalize_counts else recon_all
+        )
+        mean_cf = recon_all[mask_cf]
+        mean_cf = mean_cf.mean(axis=0)
+
+        # Control and target can be either from recon or raw counts
+        X_all = (
+            adata.obsm.get("recon_x").copy()
+            if use_recon
+            else adata.layers["counts"].copy()
+        )
+        X_all = _to_dense(X_all)  # ensure dense array
+        X_all = np.log1p(X_all)
+        X_all = _normalize_counts(X_all, eps=eps) if normalize_counts else X_all
 
         # compute group means (ensure arrays)
-        mean_control = (
-            X_all[mask_control].mean(axis=0)
-            if mask_control.sum() > 0
-            else np.zeros(X_all.shape[1])
-        )
-        mean_target = (
-            X_all[mask_target].mean(axis=0)
-            if mask_target.sum() > 0
-            else np.zeros(X_all.shape[1])
-        )
-        mean_cf = recon_all[mask_cf].mean(axis=0)
+        mean_control = X_all[mask_control].mean(axis=0)
+        mean_target = X_all[mask_target].mean(axis=0)
 
         # compute gt and cf: observed perturbed (target) minus real control, and counterfactual minus real control
         if method == "lfc":
@@ -503,3 +507,99 @@ def get_de_correlations(cf_adatas, k=50, eps=1e-6, method="lfc", plot=False, use
         plt.show()
 
     return results, vectors
+
+
+def get_baseline_delta(
+    adata,
+    model,
+    use_celltypes,
+    labels_col,
+    library_size="latent",
+    normalize_counts=False,
+    use_recon=False,
+    eps=1e-8,
+):
+    # Take log fold change delta of in-sample control and CRC populations
+    adata_control = adata[
+        (adata.obs[labels_col].isin(use_celltypes))
+        & (~adata.obs["typ"].str.contains("CRC"))
+    ]
+    adata_holdout = adata[
+        (adata.obs[labels_col].isin(use_celltypes))
+        & (adata.obs["typ"].str.contains("CRC"))
+    ]
+    if use_recon:
+        x = model.get_normalized_expression(adata_control, library_size=library_size)
+        y = model.get_normalized_expression(adata_holdout, library_size=library_size)
+    else:
+        x = adata_control.layers["counts"].toarray()
+        y = adata_holdout.layers["counts"].toarray()
+        if normalize_counts:
+            # normalize to proportions
+            x /= x.sum(axis=1, keepdims=True) + eps
+            y /= y.sum(axis=1, keepdims=True) + eps
+
+    # Compute shift vector from epithelial control to holdout
+    # delta = y.mean(axis=0) - x.mean(axis=0)
+    delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
+
+    return delta
+
+
+def compare_observed_recon_lfc(adata, labels_key, recon_key="recon_x", eps=1e-8):
+    agreements = {}
+    for ct in tqdm(adata.obs[labels_key].unique()):
+        adata_control = adata[
+            (adata.obs[labels_key] == ct) & (~adata.obs["typ"].str.contains("CRC"))
+        ]
+        adata_target = adata[
+            (adata.obs[labels_key] == ct) & (adata.obs["typ"].str.contains("CRC"))
+        ]
+
+        # DE between observed control and holdout
+        mean_control = np.log1p(adata_control.layers["counts"].toarray()).mean(axis=0)
+        mean_target = np.log1p(adata_target.layers["counts"].toarray()).mean(axis=0)
+        gt_vec = safe_log2_fold_change(mean_target, mean_control, eps=eps)
+
+        # DE between reconstructed control and holdout
+        recon_control = np.log1p(adata_control.obsm.get(recon_key)).mean(axis=0)
+        recon_target = np.log1p(adata_target.obsm.get(recon_key)).mean(axis=0)
+        recon_vec = safe_log2_fold_change(recon_target, recon_control, eps=eps)
+
+        pear, _ = pearsonr(gt_vec, recon_vec)
+        spearman, _ = spearmanr(gt_vec, recon_vec)
+
+        agreements[ct] = {"pearson": pear, "spearman": spearman}
+
+    return agreements
+
+
+def edist_observed_vs_recon(adata, labels_key, n_subsample=250, recon_key="recon_x"):
+    edists = {}
+    conds = ["control", "perturbed"]
+    for ct in tqdm(adata.obs[labels_key].unique()):
+        if ct == "Epithelial":
+            continue
+        edists[ct] = {}
+        for cond in conds:
+            if cond == "control":
+                adata_sub = adata[
+                    (adata.obs[labels_key] == ct)
+                    & (~adata.obs["typ"].str.contains("CRC"))
+                ]
+            else:
+                adata_sub = adata[
+                    (adata.obs[labels_key] == ct)
+                    & (adata.obs["typ"].str.contains("CRC"))
+                ]
+
+            # First log normalize both populations
+            gt_pop = np.log1p(adata_sub.layers["counts"].toarray())
+            recon_pop = np.log1p(adata_sub.obsm[recon_key])
+
+            # Edist between populations
+            Xa_s = subsample_cells(gt_pop, n_subsample, seed=0)
+            Xb_s = subsample_cells(recon_pop, n_subsample, seed=0)
+            edist = e_distance(Xa_s, Xb_s)
+            edists[ct][cond] = round(float(edist), 4)
+    return edists
