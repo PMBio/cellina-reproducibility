@@ -524,16 +524,16 @@ def get_baseline_delta(
         (adata.obs[labels_col].isin(use_celltypes))
         & (~adata.obs["typ"].str.contains("CRC"))
     ]
-    adata_holdout = adata[
+    adata_target = adata[
         (adata.obs[labels_col].isin(use_celltypes))
         & (adata.obs["typ"].str.contains("CRC"))
     ]
     if use_recon:
         x = model.get_normalized_expression(adata_control, library_size=library_size)
-        y = model.get_normalized_expression(adata_holdout, library_size=library_size)
+        y = model.get_normalized_expression(adata_target, library_size=library_size)
     else:
         x = adata_control.layers["counts"].toarray()
-        y = adata_holdout.layers["counts"].toarray()
+        y = adata_target.layers["counts"].toarray()
         if normalize_counts:
             # normalize to proportions
             x /= x.sum(axis=1, keepdims=True) + eps

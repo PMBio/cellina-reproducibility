@@ -40,6 +40,7 @@ MODEL_ROOT = "/data2/a330d/data/ood/trained"
 
 # local utils
 from counterfactual_analysis import make_counterfactual_adata
+from utils import set_seed
 
 # Import configs
 sys.path.append('./scripts')
@@ -363,7 +364,8 @@ def main():
         raise ValueError(f"Unsupported model_class: {args.model_class}")
 
     # seed for reproducibility
-    np.random.seed(DEFAULT_SEED)
+    #np.random.seed(DEFAULT_SEED)
+    set_seed(DEFAULT_SEED)
 
     # load adata
     print("Loading adata:", args.adata_path)
