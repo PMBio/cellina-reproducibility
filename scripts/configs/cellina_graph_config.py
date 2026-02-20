@@ -13,7 +13,7 @@ MODEL_ARGS = {
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
-    "max_epochs": 2,  #100,
+    "max_epochs": 50,  #100,
     "batch_size": 512,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
