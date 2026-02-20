@@ -58,19 +58,19 @@ def _to_dense(x):
     return np.asarray(x)
 
 
-def load_model_predicted(recon_path):
+def load_model_predicted(path):
     """Load an AnnData stored at recon_path and align rows to parent_adata.obs_names.
     Returns a dense numpy array shaped (parent_adata.n_obs, parent_adata.n_vars) where rows
     not present in recon file are filled with np.nan.
     """
-    if not os.path.exists(recon_path):
-        raise FileNotFoundError(recon_path)
-    r = sc.read(recon_path)
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    r = sc.read(path)
     if getattr(r, 'X', None) is not None:
-        recon_mat = _to_dense(r.X)
+        count_mat = _to_dense(r.X)
     else:
-        raise RuntimeError(f"No recognized expression matrix found in {recon_path}")
-    return recon_mat
+        raise RuntimeError(f"No recognized expression matrix found in {path}")
+    return count_mat
 
 
 def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8):
@@ -180,9 +180,13 @@ def main():
         adata.uns['counterfactual_x'] = cf_matrix
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
 
-    # Load counterfactual
+    # Load recons (if not baseline) and counterfactual
     cf_loaded = False
-    recon = None
+    recon = load_model_predicted(recon_path) if mc != 'baseline' else None
+    if recon is not None:
+        adata.uns['recon_x'] = recon
+        print('Loaded reconstructions into adata.uns["recon_x"] from', recon_path)
+        
     if mc == 'cpa':
         # for CPA, place recon of target cells into counterfactual field
         mask_target = adata.obs['typ'].astype(str).str.contains('CRC', regex=True) & (adata.obs['coarse_type'].astype(str) == holdout_ct)
