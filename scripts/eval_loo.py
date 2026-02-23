@@ -153,6 +153,13 @@ def main():
     recon_path = os.path.join(base_dir, recon_fname)
     cf_path = os.path.join(base_dir, cf_fname)
 
+    # Load recons (if not baseline)
+    cf_loaded = False
+    recon = load_model_predicted(recon_path) if mc != 'baseline' else None
+    if recon is not None:
+        adata.uns['recon_x'] = recon
+        print('Loaded reconstructions into adata.uns["recon_x"] from', recon_path)
+    
     # If baseline mode, compute baseline counterfactual and skip loading model reconstructions
     if mc == 'baseline':
         print('Baseline mode: constructing baseline counterfactual using training-set CRC shift')
@@ -179,15 +186,8 @@ def main():
         # store only control-matching rows (compute_correlations can handle subset shape)
         adata.uns['counterfactual_x'] = cf_matrix
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
-
-    # Load recons (if not baseline) and counterfactual
-    cf_loaded = False
-    recon = load_model_predicted(recon_path) if mc != 'baseline' else None
-    if recon is not None:
-        adata.uns['recon_x'] = recon
-        print('Loaded reconstructions into adata.uns["recon_x"] from', recon_path)
-        
-    if mc == 'cpa':
+     
+    elif mc == 'cpa':
         # for CPA, place recon of target cells into counterfactual field
         mask_target = adata.obs['typ'].astype(str).str.contains('CRC', regex=True) & (adata.obs['coarse_type'].astype(str) == holdout_ct)
         if recon is None:
