@@ -43,10 +43,10 @@ HOLDOUTS = [
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    # {"class": "cellina", "name": "cellina_v1"},
-    {"class": "cellina", "name": "cellina"},
-    {"class": "cpa", "name": "cpa"},
-    {"class": "cellina_graph", "name": "cellina-graph"}
+    {"class": "cellina", "name": "cellina-ablated"},
+    #{"class": "cellina", "name": "cellina"},
+    #{"class": "cpa", "name": "cpa"},
+    #{"class": "cellina_graph", "name": "cellina-graph"}
 ]
 
 
@@ -165,18 +165,16 @@ def main():
 
     print(f"Found {len(paths)} adata paths; will run holdouts={holdouts} models={[m.get('class', m) for m in models]} with concurrency={concurrency}")
 
+    # Build all commands across datasets / holdouts / models and run them with a global concurrency limit.
+    all_cmds = []
     for p in paths:
         sid = Path(p).stem
         for holdout in holdouts:
-            # prepare commands for this (sid, holdout) group
-            cmds = []
             for model_entry in models:
-                # model_entry may be a dict with 'class' and 'name'
                 if isinstance(model_entry, dict):
                     model_class = model_entry.get('class')
                     model_name = model_entry.get('name') or args.model_name_template.format(model_class=model_class, sid=sid, holdout=holdout)
                 else:
-                    # backwards compatibility: string entry
                     model_class = str(model_entry)
                     model_name = args.model_name_template.format(model_class=model_class, sid=sid, holdout=holdout)
 
@@ -188,23 +186,20 @@ def main():
                         cmd[0] = cpa_python
 
                 log_path = LOG_ROOT / sid / holdout / f"{model_class}.log"
-                cmds.append((cmd, log_path))
+                all_cmds.append((cmd, log_path))
 
-            # show planned commands
-            for cmd, log_path in cmds:
-                print('  ', ' '.join(shlex.quote(c) for c in cmd), '->', log_path)
+    # show planned commands
+    for cmd, log_path in all_cmds:
+        print('  ', ' '.join(shlex.quote(c) for c in cmd), '->', log_path)
 
-            # dry-run print
-            if args.dry_run:
-                print("DRY-RUN: would execute the following commands in parallel (bounded by concurrency):")
-                for cmd, log_path in cmds:
-                    print('  ', ' '.join(shlex.quote(c) for c in cmd), '->', log_path)
-                continue
+    # dry-run: just print commands and exit
+    if args.dry_run:
+        print("DRY-RUN: not launching any processes")
+        return
 
-            print(f"Starting group: sid={sid} holdout={holdout} (n_jobs={len(cmds)})")
-            # run these cmds in batches with global concurrency limit
-            run_batch(cmds, concurrency)
-            print(f"Completed group: sid={sid} holdout={holdout}")
+    print(f"Starting {len(all_cmds)} jobs with concurrency={concurrency}")
+    run_batch(all_cmds, concurrency)
+    print("Completed all jobs")
 
     print("All jobs finished")
 

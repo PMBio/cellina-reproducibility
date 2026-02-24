@@ -43,7 +43,8 @@ MODELS = [
     #{"class": "cellina", "name": "cellina"},
     #{"class": "cpa", "name": "cpa"},
     #{"class": "cellina_graph", "name": "cellina-graph"},
-    {"class": "baseline", "name": "baseline"}
+    #{"class": "baseline", "name": "baseline"}
+    {"class": "cellina", "name": "cellina-ablated"},
 ]
 
 
