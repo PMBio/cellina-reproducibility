@@ -33,6 +33,7 @@ DEFAULT_HVGS = 2000
 DEFAULT_N_NEIGHBORS = 50
 DEFAULT_BATCH_SIZE = 4096
 DEFAULT_SEED = 0
+COUNTS_PER_K = 1e4
 DEFAULT_LABELS_KEY = 'coarse_type'
 DEFAULT_DOMAINS_KEY = 'typ'
 DEFAULT_BATCH_KEY = 'sid'
@@ -82,8 +83,7 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
         if "CPA_pred" in adata_obj.obsm:
             X = _to_array(adata_obj.obsm["CPA_pred"])  # likely raw counts
             if return_normalized:
-                X = np.log1p(X)
-                X = X / (X.sum(axis=1, keepdims=True) + 1e-8)
+                X = X / (X.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
             return X
         if out is not None:
             return _to_array(out)
@@ -91,8 +91,7 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
 
     # other models (cellina or generic models exposing get_normalized_expression)
     if hasattr(model, "get_normalized_expression"):
-        #library_size = 1.0 if return_normalized else "latent"
-        library_size = 1.0
+        library_size = COUNTS_PER_K if return_normalized else "latent"
         out = model.get_normalized_expression(adata_obj, library_size=library_size, batch_size=batch_size)
         return _to_array(out)
 
