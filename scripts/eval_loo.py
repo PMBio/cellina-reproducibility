@@ -40,7 +40,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "concert"]) 
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', default=True, help="Use reconstructions for DE (default True)")
     return p.parse_args()
@@ -120,7 +120,7 @@ def main():
     mc = args.model_class.lower()
     model_name = args.model_name
     use_recon = args.use_recon
-    if mc=='cpa' or mc=='baseline':
+    if mc in ['cpa', 'baseline', 'concert']:
         use_recon = False
 
     set_seed(DEFAULT_SEED)
