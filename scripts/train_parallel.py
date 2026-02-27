@@ -184,6 +184,10 @@ def main():
                     cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python"
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
+                if model_class == 'concert':
+                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python"
+                    if len(cmd) > 0:
+                        cmd[0] = concert_python
 
                 log_path = LOG_ROOT / sid / holdout / f"{model_class}.log"
                 all_cmds.append((cmd, log_path))
