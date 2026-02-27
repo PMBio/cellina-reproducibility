@@ -28,12 +28,15 @@ from counterfactual_analysis import safe_log2_fold_change, get_baseline_delta
 import pandas as pd
 
 DEFAULT_SEED = 0
+PRECISION_AT_K = 50
+EDISTANCE_SUBSAMPLE = 500
 
 # reuse preprocessing defaults from configs
 sys.path.append('./scripts')
 from configs.adata_config import ADATA_ARGS
 from train_loo import preprocess_adata, split_indices, COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY
 from utils import set_seed
+from counterfactual_analysis import subsample_cells, e_distance, precision_at_k
 
 
 def parse_args():
@@ -108,8 +111,23 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
     valid = np.isfinite(gt_vec) & np.isfinite(cf_vec)
     pear, _ = pearsonr(gt_vec[valid], cf_vec[valid])
     spear, _ = spearmanr(gt_vec[valid], cf_vec[valid])
+    prec = precision_at_k(gt_vec, cf_vec, k=PRECISION_AT_K, use_abs=True)
 
-    return float(pear), float(spear)
+    return float(pear), float(spear), float(prec)
+
+
+def get_edistance(adata, holdout_celltype, labels_key=DEFAULT_LABELS_KEY,  n_subsample=EDISTANCE_SUBSAMPLE):
+    mask_target = adata.obs['is_holdout']
+    gt_target = adata.layers["counts"][mask_target.values, :]
+    gt_target = _to_dense(gt_target)
+    gt_target = gt_target / (gt_target.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
+    pred_target = adata.uns['counterfactual_x']
+    
+    Xa_s = subsample_cells(gt_target, n_subsample, seed=0)
+    Xb_s = subsample_cells(pred_target, n_subsample, seed=0)
+    edist = e_distance(Xa_s, Xb_s)
+
+    return edist
 
 
 def main():
@@ -219,7 +237,10 @@ def main():
         raise FileNotFoundError(f"No counterfactual available for evaluation (tried {cf_path} and CPA fallback).")
 
     # compute correlations
-    pear, spear = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
+    pear, spear, precision_at_k = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
+
+    # compute edistance between gt and predicted OOD population
+    edist = get_edistance(adata, holdout_celltype=holdout_ct, labels_key=labels_key, n_subsample=EDISTANCE_SUBSAMPLE)
 
     # save results json
     out_dir = '/data2/a330d/datasets/crc/correlations'
@@ -227,7 +248,7 @@ def main():
     out_fname = f"{sid}_{model_name}_{holdout_ct}.json"
     out_path = os.path.join(out_dir, out_fname)
     with open(out_path, 'w') as fh:
-        json.dump({'pearson': pear, 'spearman': spear}, fh)
+        json.dump({'pearson': pear, 'spearman': spear, 'edistance': edist, f'precision@{PRECISION_AT_K}': precision_at_k}, fh)
 
     print('Saved correlations to', out_path)
 
