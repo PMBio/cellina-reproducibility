@@ -27,15 +27,12 @@ from scipy.stats import pearsonr, spearmanr
 from counterfactual_analysis import safe_log2_fold_change, get_baseline_delta
 import pandas as pd
 
-DEFAULT_LABELS_KEY = 'coarse_type'
-DEFAULT_DOMAINS_KEY = 'typ'
-DEFAULT_BATCH_KEY = 'sid'
 DEFAULT_SEED = 0
 
 # reuse preprocessing defaults from configs
 sys.path.append('./scripts')
 from configs.adata_config import ADATA_ARGS
-from train_loo import preprocess_adata, split_indices
+from train_loo import preprocess_adata, split_indices, COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY
 from utils import set_seed
 
 
@@ -88,6 +85,7 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8):
         if 'counts' not in adata.layers:
             raise RuntimeError('adata.layers["counts"] missing; cannot compute observed DE')
         X_all = _to_dense(adata.layers['counts'])
+        X_all = X_all / (X_all.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
 
     # mean vectors
     if mask_control.sum() == 0 or mask_target.sum() == 0:
@@ -183,6 +181,7 @@ def main():
             raise RuntimeError('adata.layers["counts"] missing; cannot compute baseline counterfactual')
         counts = _to_dense(adata.layers['counts'])
         cf_matrix = counts[mask_control.values, :] + delta
+        cf_matrix = cf_matrix / (cf_matrix.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
         # store only control-matching rows (compute_correlations can handle subset shape)
         adata.uns['counterfactual_x'] = cf_matrix
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
