@@ -70,8 +70,8 @@ def load_model_predicted(path):
     return count_mat
 
 
-def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8):
-    labels = adata.obs['coarse_type'].astype(str)
+def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labels_key=DEFAULT_LABELS_KEY):
+    labels = adata.obs[labels_key].astype(str)
     # masks
     mask_control = (~adata.obs['is_holdout']) & (labels == holdout_celltype)
     mask_target = (adata.obs['is_holdout']) & (labels == holdout_celltype)
@@ -131,6 +131,9 @@ def main():
 
     n_top_genes = ADATA_ARGS.get('n_top_genes', 2000)
     n_neighbors = ADATA_ARGS.get('n_neighbors', 50)
+    labels_key = ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY)
+    domains_key = ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY)
+    batch_key = ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY)
 
     adata = preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
@@ -139,8 +142,8 @@ def main():
     # only needed to generate obs['is_holdout'] for evaluation
     _ = split_indices(adata, 
                       args.holdout_celltype, 
-                      labels_key=ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY), 
-                      domains_key=ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY), 
+                      labels_key=labels_key, 
+                      domains_key=domains_key, 
                       seed=DEFAULT_SEED)
 
     # build expected paths for recon and counterfactual
@@ -157,6 +160,10 @@ def main():
     if recon is not None:
         adata.uns['recon_x'] = recon
         print('Loaded reconstructions into adata.uns["recon_x"] from', recon_path)
+
+    # If not baseline, subset adata to relevant holdout cell type - we don't need entire adata for eval
+    if mc != 'baseline':
+        adata = adata[adata.obs[labels_key].astype(str) == holdout_ct]
     
     # If baseline mode, compute baseline counterfactual and skip loading model reconstructions
     if mc == 'baseline':
@@ -176,7 +183,7 @@ def main():
             eps=1e-8,
         )
         # apply delta to control cells (holdout celltype & not CRC)
-        mask_control = (~adata.obs['typ'].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
+        mask_control = (~adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
         if 'counts' not in adata.layers:
             raise RuntimeError('adata.layers["counts"] missing; cannot compute baseline counterfactual')
         counts = _to_dense(adata.layers['counts'])
@@ -185,10 +192,10 @@ def main():
         # store only control-matching rows (compute_correlations can handle subset shape)
         adata.uns['counterfactual_x'] = cf_matrix
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
-     
+      
     elif mc == 'cpa':
         # for CPA, place recon of target cells into counterfactual field
-        mask_target = adata.obs['typ'].astype(str).str.contains('CRC', regex=True) & (adata.obs['coarse_type'].astype(str) == holdout_ct)
+        mask_target = adata.obs[domains_key].astype(str).str.contains('CRC', regex=True) & (adata.obs[labels_key].astype(str) == holdout_ct)
         if recon is None:
             raise RuntimeError('recon must be loaded for CPA fallback')
         cf_array = recon[mask_target.values, :]
@@ -212,7 +219,7 @@ def main():
         raise FileNotFoundError(f"No counterfactual available for evaluation (tried {cf_path} and CPA fallback).")
 
     # compute correlations
-    pear, spear = compute_correlations(adata, holdout_ct, use_recon=use_recon)
+    pear, spear = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
 
     # save results json
     out_dir = '/data2/a330d/datasets/crc/correlations'

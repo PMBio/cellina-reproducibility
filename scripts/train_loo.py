@@ -288,7 +288,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
     return model
 
 
-def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE):
+def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
     # determine output directory: go one level up from input path and create a folder
     # named after the input file (without .h5ad). Example: abc/raw/crc_231.h5ad -> abc/crc_231/
@@ -299,16 +299,19 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     out_dir = os.path.join(parent_of_input, input_basename, holdout_celltype)
     os.makedirs(out_dir, exist_ok=True)
 
-    # full reconstruction
+    # for space usage reasons, subset to only relevant (OOD) cell type
+    adata = adata[adata.obs[labels_key] == holdout_celltype]
+
+    # reconstruction
     try:
-        recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
+        recon = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
     except Exception as e:
         print("Failed to get reconstructions for full dataset:", e)
-        recon_all = None
+        recon = None
 
-    if recon_all is not None:
+    if recon is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
-        save_recon_adata(adata, recon_all, out_recon_path)
+        save_recon_adata(adata, recon, out_recon_path)
         print("Saved reconstruction adata:", out_recon_path)
     else:
         out_recon_path = None
@@ -372,6 +375,9 @@ def main():
     
     # preprocess using ADATA_ARGS
     n_top_genes = ADATA_ARGS.get('n_top_genes', DEFAULT_HVGS)
+    labels_key = ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY)
+    domains_key = ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY)
+    batch_key = ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY)
     n_neighbors = 10 if mc=='cellina-graph' else ADATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
     adata = preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
@@ -380,8 +386,8 @@ def main():
 
     # create splits
     train_idx, val_idx, test_idx = split_indices(adata, args.holdout_celltype, 
-                                                 labels_key=ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY), 
-                                                 domains_key=ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY), 
+                                                 labels_key=labels_key, 
+                                                 domains_key=domains_key, 
                                                  seed=DEFAULT_SEED)
     splits = (train_idx, val_idx, test_idx)
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
@@ -401,15 +407,15 @@ def main():
                         model_args, 
                         train_args, 
                         save_dir, 
-                        labels_key=ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY),
-                        domains_key=ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY),
-                        batch_key=ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY),
+                        labels_key=labels_key,
+                        domains_key=domains_key,
+                        batch_key=batch_key,
                         plan_kwargs=plan_kwargs, 
                         splits=splits)
     
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
-    out_recon_path, out_cf_path = run_inference(model, adata, args.adata_path, args.model_class, model_name, args.holdout_celltype, do_cf=do_cf, batch_size=batch_size)
+    out_recon_path, out_cf_path = run_inference(model, adata, args.adata_path, args.model_class, model_name, args.holdout_celltype, do_cf=do_cf, batch_size=batch_size, labels_key=labels_key)
 
     print("Done. Outputs:")
     pprint({
