@@ -5,21 +5,21 @@ MODEL_ARGS = {
     # Do not include adata here; train_loo will pass the AnnData when constructing the model
     "n_latent": 64,
     "use_observed_lib_size": True,
-    "classifier_lambda": 0.0, #1.0,
-    "discriminator_lambda": 0.0,
+    "classifier_lambda": 1.0,
+    "discriminator_lambda": 1.0,
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
-    "max_epochs": 52,  #100,
+    "max_epochs": 100,
     "batch_size": 2048, #4096,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
     "early_stopping_patience": 25,
     "early_stopping_monitor": "validation_loss",
     "enable_checkpointing": True,
-    "devices": [1],
+    "devices": [0],
 }
 
 # Additional plan kwargs sometimes passed to model.train; include a reasonable default

@@ -96,20 +96,18 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
         out = model.get_normalized_expression(adata_obj, library_size=library_size, batch_size=batch_size)
         return _to_array(out)
 
-    # fallback: try model.predict
-    if hasattr(model, "predict"):
-        out = model.predict(adata_obj)
-        return _to_array(out)
-
     raise RuntimeError("Model does not expose a known reconstruction API (get_normalized_expression or predict)")
 
 
-def save_recon_adata(adata_parent, recon_array, out_path):
+def save_recon_adata(adata_parent, recon_array, out_path, latents=None):
     # build adata with only obs and var copied, and recon in obsm
     #ad_recon = ad.AnnData(X=np.zeros((adata_parent.n_obs, adata_parent.n_vars), dtype=np.float32))
     ad_recon = ad.AnnData(X=recon_array)
     ad_recon.obs = adata_parent.obs.copy()
     ad_recon.var = adata_parent.var.copy()
+    if latents is not None:
+        ad_recon.obsm[f"latents"] = latents
+        
     ad_recon.write_h5ad(out_path, compression="gzip")
     return out_path
 
@@ -351,10 +349,8 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
                 batch=batch_full[train_idx],
                 **train_kwargs,
             )
-        except TypeError:
-            # fallback: pass named args from train_args only
-            model.train_model(**train_kwargs)
-
+        except Exception as e:
+            print("CONCERT training filed with error: ", e)
     else:
         raise ValueError(f"Unsupported model_class: {model_class}. Supported: cellina, cpa, cellina_graph, concert")
 
@@ -433,7 +429,14 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     if recon_all is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
         adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()
-        save_recon_adata(adata_with_obs, recon_all, out_recon_path)
+        # Get latents
+        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
+        latents = (
+            latents
+            if model_class not in ["cpa", "concert"] 
+            else latents["latent_after"].X
+        )
+        save_recon_adata(adata_with_obs, recon_all, out_recon_path, latents=latents)
         print('Saved recon to', out_recon_path)
 
     # Compute counterfactuals
@@ -477,7 +480,9 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
                 try:
                     recon_cf = _reconstruct_model_output(model, adata_cf, model_class, return_normalized=True, batch_size=batch_size)
                     out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
-                    save_recon_adata(adata_cf, recon_cf, out_cf_path)
+                    # Get latents
+                    latents_cf = model.get_latent_representation(adata=adata_cf, batch_size=batch_size)
+                    save_recon_adata(adata_cf, recon_cf, out_cf_path, latents=latents_cf)
                     print("Saved counterfactual reconstructions:", out_cf_path)
                 except Exception as e:
                     print("Counterfactual inference failed:", e)

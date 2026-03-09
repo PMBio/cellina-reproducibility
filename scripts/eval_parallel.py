@@ -28,8 +28,13 @@ PY = sys.executable
 # Populate these lists manually
 PATHS = [
     # Example: "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
 ]
 HOLDOUTS = [
     # Example: "Epithelial",
@@ -37,14 +42,19 @@ HOLDOUTS = [
     "Endothelial",
     "Myeloid",
     "T_cell",
+    "Epithelial",
+    #"B_cell"
 ]
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina_v1"}
-    #{"class": "cellina", "name": "cellina"},
-    #{"class": "cpa", "name": "cpa"},
-    #{"class": "cellina_graph", "name": "cellina-graph"},
-    #{"class": "baseline", "name": "baseline"}
-    {"class": "cellina", "name": "cellina-ablated"},
+    #{"class": "baseline", "name": "baseline"},
+    {"class": "cellina", "name": "cellina"},
+    {"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
+    {"class": "cpa", "name": "cpa"},
+    #{"class": "cellina_graph", "name": "cellina-graph"}
+    #{"class": "concert", "name": "concert"},
+    #{"class": "cellina", "name": "cellina-ablated"},
 ]
 
 
@@ -69,15 +79,33 @@ def expand_paths(path_patterns):
     return paths
 
 
-def make_cmd(adata_path, holdout, model_class, model_name, extra_args):
+def make_cmd(adata_path, holdout, model_class, model_name, extra_args, model_extra_args=None):
     cmd = [PY, str(EVAL_SCRIPT),
            "--adata_path", str(adata_path),
            "--holdout_celltype", str(holdout),
            "--model_class", str(model_class),
            "--model_name", str(model_name),
            ]
+    # global extra args (string)
     if extra_args:
         cmd += shlex.split(extra_args)
+
+    # per-model extra args: accept string or list
+    if model_extra_args:
+        if isinstance(model_extra_args, str):
+            cmd += shlex.split(model_extra_args)
+        elif isinstance(model_extra_args, (list, tuple)):
+            cmd += [str(x) for x in model_extra_args]
+        else:
+            # if user accidentally passes a dict, try to convert to flags: {"use_recon": True} -> "--use_recon"
+            if isinstance(model_extra_args, dict):
+                for k, v in model_extra_args.items():
+                    flag = f"--{k.replace('_','-')}"
+                    if isinstance(v, bool):
+                        if v:
+                            cmd.append(flag)
+                    else:
+                        cmd += [flag, str(v)]
     return cmd
 
 
@@ -175,14 +203,11 @@ def main():
         sid = Path(p).stem
         for holdout in HOLDOUTS:
             for model_entry in MODELS:
-                if isinstance(model_entry, dict):
-                    model_class = model_entry.get('class')
-                    model_name = model_entry.get('name') or f"{model_class}_{sid}_{holdout}"
-                else:
-                    model_class = str(model_entry)
-                    model_name = f"{model_class}_{sid}_{holdout}"
+                model_class = model_entry.get('class')
+                model_name = model_entry.get('name') or f"{model_class}_{sid}_{holdout}"
+                model_extra = model_entry.get('extra_args', None)
 
-                cmd = make_cmd(p, holdout, model_class, model_name, args.extra_args)
+                cmd = make_cmd(p, holdout, model_class, model_name, args.extra_args, model_extra)
                 log_path = LOG_ROOT / sid / holdout / f"{model_class}.eval.log"
                 all_cmds.append((cmd, log_path))
 

@@ -22,7 +22,7 @@ MODEL_ARGS = {
 TRAIN_ARGS = {
     # These trainer params are passed via plan_kwargs in the notebook model.train call.
     # We include commonly used hyperparameters here; train_loo may forward them as plan_kwargs.
-    "max_epochs": 50, #100,
+    "max_epochs": 100,
     "use_gpu": True,
     "batch_size": 2048, #4096,
     # early stopping values manageable by caller

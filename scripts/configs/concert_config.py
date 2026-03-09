@@ -40,12 +40,13 @@ MODEL_ARGS = {
 # Training-time kwargs — passed to the model.train_model(...) call
 TRAIN_ARGS = {
     "maxiter": 2, #50,
-    "patience": 1, #25,
+    "patience": 1, #5,
     "batch_size": 512,
     "lr": 1e-4,
     "weight_decay": 1e-6,
     "num_samples": 1,
     "train_size": 0.95,
+    "report_every": 1,
     # save_model and model filename handled by train_loo; here default False
     "save_model": False,
 }
