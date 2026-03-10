@@ -193,14 +193,13 @@ def main():
 
     # Load recons (if not baseline)
     cf_loaded = False
-    recon, latents = load_model_predicted(recon_path) if mc != 'baseline' else None
-    if recon is not None:
+    recon, latents = None, None
+    if mc != 'baseline':
+        recon, latents = load_model_predicted(recon_path)
         adata.uns['recon_x'] = recon
         adata.uns['latents'] = latents
         print('Loaded reconstructions and latents into adata.uns["recon_x"] from', recon_path)
-
-    # If not baseline, subset adata to relevant holdout cell type - we don't need entire adata for eval
-    if mc != 'baseline':
+        # If not baseline, subset adata to relevant holdout cell type - we don't need entire adata for eval
         adata = adata[adata.obs[labels_key].astype(str) == holdout_ct]
     
     # If baseline mode, compute baseline counterfactual and skip loading model reconstructions
@@ -264,8 +263,10 @@ def main():
     pear, spear, precision_at_k, deg = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
 
     # compute edistance between gt and predicted OOD populations - cell level
-    edist_recon = True if mc in ['cpa', 'cellina', 'cellina_graph'] else False
-    edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_recon=edist_recon, deg=deg)
+    edist_cells = None
+    if mc != 'baseline':
+        edist_recon = True if mc in ['cpa', 'cellina', 'cellina_graph'] else False
+        edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_recon=edist_recon, deg=deg)
 
     # compute edistance between control and OOD populations - latent level
     edist_latents = None

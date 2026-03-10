@@ -47,11 +47,11 @@ HOLDOUTS = [
 ]
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina_v1"}
-    #{"class": "baseline", "name": "baseline"},
-    {"class": "cellina", "name": "cellina"},
-    {"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
-    {"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
-    {"class": "cpa", "name": "cpa"},
+    {"class": "baseline", "name": "baseline"},
+    #{"class": "cellina", "name": "cellina"},
+    #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
+    #{"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
+    #{"class": "cpa", "name": "cpa"},
     #{"class": "cellina_graph", "name": "cellina-graph"}
     #{"class": "concert", "name": "concert"},
     #{"class": "cellina", "name": "cellina-ablated"},
