@@ -28,13 +28,13 @@ PY = sys.executable
 # Populate these lists manually
 PATHS = [
     # Example: "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
 HOLDOUTS = [
     # Example: "Epithelial",

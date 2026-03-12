@@ -215,7 +215,7 @@ def main():
             use_celltypes=all_cts,
             labels_col=labels_key,
             library_size="latent",
-            normalize_counts=False,
+            normalize_counts=True,
             use_recon=use_recon,
             eps=1e-8,
         )
