@@ -438,14 +438,14 @@ def get_de_correlations(
             or (np.nanstd(cf_vec[valid]) == 0)
         ):
             pear = np.nan
-            spearman = np.nan
+            spear = np.nan
         else:
             pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
-            spearman, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
+            spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
 
         prec = precision_at_k(gt_vec, cf_vec, k=k, use_abs=True)
         results.append(
-            {"celltype": ct, "pearson": pear, "spearman": spearman, f"prec@{k}": prec}
+            {"celltype": ct, "pearson": pear, "spearman": spear, f"prec@{k}": prec}
         )
 
         # plotting: create multiplot grid with 3 columns per row, one scatter per cell type
