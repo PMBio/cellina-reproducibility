@@ -50,13 +50,15 @@ from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_T
 from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL
 from configs.adata_config import ADATA_ARGS, NORMALIZE, LOG1P
 from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
+from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
+
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert'], help="one of: cellina, cpa, cellina_graph, concert")
+    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'cellina_mmd'], help="one of: cellina, cpa, cellina_graph, concert, cellina_mmd")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
 
     return p.parse_args()
@@ -496,11 +498,18 @@ def main():
 
     # choose configs based on model_class
     mc = args.model_class.lower()
+    model_name = args.model_name
+    print(model_name)
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()
         train_args = CELLINA_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_DO_COUNTERFACTUAL
+        if model_name == 'cellina-mmd':
+            model_args = CELLINA_MMD_MODEL_ARGS.copy()
+            train_args = CELLINA_MMD_TRAIN_ARGS.copy()
+            plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
+            do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
     elif mc == 'cpa':
         model_args = CPA_MODEL_ARGS.copy()
         train_args = CPA_TRAIN_ARGS.copy()
@@ -551,7 +560,6 @@ def main():
 
     # prepare save dir for model
     sid = args.adata_path.split('/')[-1].split('.')[0]
-    model_name = args.model_name
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
