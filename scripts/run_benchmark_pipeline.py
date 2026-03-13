@@ -44,6 +44,7 @@ class BenchmarkPipelineRunner:
                  max_epochs=None,
                  batch_size=128,
                  n_hidden=300,
+                 profiler=True,
                  **kwargs):
         
         try:
@@ -89,9 +90,12 @@ class BenchmarkPipelineRunner:
             setattr(self, k, v)
             
         self.adata = adata
+        self.dataset_base_path = dataset_base_path
         self.dataset_name = dataset_name
+        self.dataset_path = f"{dataset_base_path}/{dataset_name}.h5ad"
         self.n_layers = n_layers
         self.n_latent = n_latent
+        self.profiler = profiler
         
         self.early_stopping_patience = early_stopping_patience
         self.max_epochs = max_epochs
@@ -151,6 +155,8 @@ class BenchmarkPipelineRunner:
             
             if name in ['SIMVI', 'scVIVA', 'SCVI', 'SCANVI', 'CELLINA']:
                 model_kwargs = {'n_hidden': self.n_hidden}
+            else:
+                model_kwargs = {}
             
             train_kwargs = {
                     'early_stopping_patience': self.early_stopping_patience,
@@ -183,6 +189,9 @@ class BenchmarkPipelineRunner:
                 model_kwargs=model_kwargs,
                 train_kwargs=train_kwargs,
                 batch_size=self.batch_size,
+                dataset_name=self.dataset_name,
+                dataset_path=self.dataset_path,
+                profiler=self.profiler,
                 **extra_args
             )
 

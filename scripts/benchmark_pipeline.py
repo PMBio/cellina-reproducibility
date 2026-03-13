@@ -14,6 +14,13 @@ from typing import Optional
 from cellina import CellinaModel
 from anndata import AnnData
 
+import sys
+sys.path.append('./scripts')
+
+from profiler import profile_training
+
+PROFILER_CSV_PATH = "../../results/training_stats.csv"
+
 OBSM_KEYS = [
     "Unintegrated",
     "scVI", 
@@ -163,10 +170,32 @@ def run_scvi_model(
     model_kwargs={},
     train_kwargs={},
     batch_size=256,
+    profiler=True,
+    dataset_name="",
+    dataset_path="",
     ):
     SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
     scvi_model = SCVI(adata, gene_likelihood="nb", n_layers=n_layers, n_latent=n_latent, **model_kwargs)
-    scvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, max_epochs=max_epochs, **train_kwargs)
+    
+    if profiler:
+        profile_training(
+            lambda: scvi_model.train(datasplitter_kwargs=data_splitter_kwargs, 
+                                    batch_size=batch_size, 
+                                    max_epochs=max_epochs, 
+                                    **train_kwargs),
+            model_name="scvi",
+            num_epochs=max_epochs,
+            dataset_name=dataset_name,
+            dataset_size=adata.n_obs,
+            dataset_path=dataset_path,
+            csv_path=PROFILER_CSV_PATH
+        )
+    else:
+        scvi_model.train(datasplitter_kwargs=data_splitter_kwargs, 
+                                 batch_size=batch_size, 
+                                 max_epochs=max_epochs, 
+                                 **train_kwargs)
+
     adata.obsm["scVI"] = scvi_model.get_latent_representation()
     adata.write(output_path)
     
@@ -189,6 +218,9 @@ def run_cellina_model(
     classifier_lambda=1.0,
     discriminator_lambda=1.0,
     save_lambda_in_key=False,
+    profiler=True,
+    dataset_name="",
+    dataset_path="",
 ):
     print(f"Running Cellina with classifier_lambda={classifier_lambda}, discriminator_lambda={discriminator_lambda}")
     CellinaModel.setup_anndata(adata,
@@ -206,16 +238,37 @@ def run_cellina_model(
             gene_likelihood="nb",
             **model_kwargs
         )
-    model.train(
-        max_epochs=max_epochs,
-        plan_kwargs={
-            'lr': 1e-4,
-            'normalize_losses': True,
-        },
-        datasplitter_kwargs=data_splitter_kwargs,
-        batch_size=batch_size,
-        **train_kwargs,
-    )
+    
+    if profiler:
+        profile_training(
+            lambda: model.train(
+                max_epochs=max_epochs,
+                plan_kwargs={
+                    'lr': 1e-4,
+                    'normalize_losses': True,
+                },
+                datasplitter_kwargs=data_splitter_kwargs,
+                batch_size=batch_size,
+                **train_kwargs,
+            ),
+            model_name="cellina",
+            num_epochs=max_epochs,
+            dataset_name=dataset_name,
+            dataset_size=adata.n_obs,
+            dataset_path=dataset_path,
+            csv_path=PROFILER_CSV_PATH
+        )
+    else:
+        model.train(
+            max_epochs=max_epochs,
+            plan_kwargs={
+                'lr': 1e-4,
+                'normalize_losses': True,
+            },
+            datasplitter_kwargs=data_splitter_kwargs,
+            batch_size=batch_size,
+            **train_kwargs,
+        )
     basal_key = f"Cellina_Basal" if not save_lambda_in_key else f"Cellina_Basal_{classifier_lambda}_{discriminator_lambda}"
     spatial_key = f"Cellina_Spatial" if not save_lambda_in_key else f"Cellina_Spatial_{classifier_lambda}_{discriminator_lambda}"
     shifted_key = f"Cellina_Shifted" if not save_lambda_in_key else f"Cellina_Shifted_{classifier_lambda}_{discriminator_lambda}"
@@ -239,7 +292,10 @@ def run_pca_baseline(
     max_epochs=None,
     model_kwargs=None,
     train_kwargs=None,
-    batch_size=256
+    batch_size=256,
+    profiler=False,
+    dataset_name="",
+    dataset_path=""
 ):
     if model_kwargs is None:
         model_kwargs = {}
@@ -271,6 +327,9 @@ def run_scanvi_model(
     model_kwargs={},
     train_kwargs={},
     batch_size=256,
+    profiler=True,
+    dataset_name="",
+    dataset_path="",
 ):
     SCANVI.setup_anndata(
         adata,
@@ -288,7 +347,19 @@ def run_scanvi_model(
     )
     if max_epochs is not None:
         train_kwargs.setdefault("max_epochs", max_epochs)
-    scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
+    
+    if profiler:
+        profile_training(
+            lambda: scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs),
+            model_name="scanvi",
+            num_epochs=max_epochs,
+            dataset_name=dataset_name,
+            dataset_size=adata.n_obs,
+            dataset_path=dataset_path,
+            csv_path=PROFILER_CSV_PATH
+        )
+    else:
+        scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
     # NOTE: Required for scVIVA!!!
     adata.obsm["SCANVI"] = scanvi_model.get_latent_representation()
     adata.write(output_path)
@@ -308,6 +379,9 @@ def run_scviva_model(
     model_kwargs={},
     train_kwargs={},
     batch_size=256,
+    profiler=True,
+    dataset_name="",
+    dataset_path=""
     ):
     setup_kwargs = {
         "sample_key": sample_key,
@@ -331,7 +405,19 @@ def run_scviva_model(
 
     if max_epochs is not None:
         train_kwargs.setdefault("max_epochs", max_epochs)
-    nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
+
+    if profiler:
+        profile_training(
+            lambda: nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs),
+            model_name="scviva",
+            num_epochs=max_epochs,
+            dataset_name=dataset_name,
+            dataset_size=adata.n_obs,
+            dataset_path=dataset_path,
+            csv_path=PROFILER_CSV_PATH
+        )
+    else:
+        nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
 
     adata.obsm["scVIVA"] = nichevae.get_latent_representation()
     adata.write(output_path)
@@ -352,6 +438,9 @@ def run_simvi_in_subprocess(
     train_kwargs=None,
     batch_size=256,
     data_splitter_kwargs=None,
+    profiler=False,
+    dataset_name="",
+    dataset_path=""
 ):
     """
     Runs the simVI model in a separate conda environment using subprocess.
