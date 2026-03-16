@@ -356,6 +356,10 @@ def precision_at_k(vec_true, vec_pred, k=20, use_abs=True):
     return len(set_true & set_pred) / len(set_true)
 
 
+def _normalize_counts(x, eps=1e-8):
+            return x / (x.sum(axis=1, keepdims=True) + eps) * 1e4
+
+
 def get_de_correlations(
     cf_adatas,
     k=50,
@@ -383,9 +387,6 @@ def get_de_correlations(
         mask_control = groups == "control"
         mask_target = groups == "target"
         mask_cf = groups == "counterfactual"
-
-        def _normalize_counts(x, eps=1e-8):
-            return x / (x.sum(axis=1, keepdims=True) + eps) * 1e4
 
         # Counterfactuals/predictions are always model-generated
         recon_all = _to_dense(adata.obsm.get("recon_x").copy())
@@ -540,11 +541,10 @@ def get_baseline_delta(
         y = adata_target.layers["counts"].toarray()
         if normalize_counts:
             # normalize to proportions
-            x /= x.sum(axis=1, keepdims=True) + eps
-            y /= y.sum(axis=1, keepdims=True) + eps
+            x = _normalize_counts(x, eps=eps)
+            y = _normalize_counts(y, eps=eps)
 
     # Compute shift vector from epithelial control to holdout
-    # delta = y.mean(axis=0) - x.mean(axis=0)
     delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
 
     return delta
