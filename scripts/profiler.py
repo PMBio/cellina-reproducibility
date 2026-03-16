@@ -61,8 +61,9 @@ def profile_training(
     train_fn,
     model_name,
     num_epochs,
+    dataset_name,
     dataset_size,
-    adata_path,
+    dataset_path,
     *args,
     csv_path="training_stats.csv",
     **kwargs
@@ -81,8 +82,9 @@ def profile_training(
     results = {}
     results["model_name"] = model_name
     results["num_epochs"] = num_epochs
+    results["dataset_name"] = dataset_name
     results["dataset_size"] = dataset_size
-    results["adata_path"] = adata_path
+    results["dataset_path"] = dataset_path
     results.update(profiler.summary())
 
     df = pd.DataFrame([results])

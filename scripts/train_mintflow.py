@@ -18,7 +18,7 @@ set_seed(0)
 ADATA_SAVE_PATH = "/data2/a330d/datasets/crc/processed"
 LABELS_KEY = 'coarse_type'
 DOMAINS_KEY = 'typ'
-NUM_EPOCHS = 51
+NUM_EPOCHS = 31
 BATCH_SIZE = 2048
 PATIENT_ID = 'sid'
 N_NEIGHBORS = 5
@@ -194,8 +194,9 @@ def train_mintflow(adata_save_path, dataset_size, slide_id):
                         ),
         model_name="mintflow",
         num_epochs=num_epochs,
+        dataset_name="crc",
         dataset_size=dataset_size,
-        adata_path=train_file,
+        dataset_path=train_file,
         csv_path=CSV_PATH
     )
 
