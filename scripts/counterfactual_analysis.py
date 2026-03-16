@@ -356,6 +356,10 @@ def precision_at_k(vec_true, vec_pred, k=20, use_abs=True):
     return len(set_true & set_pred) / len(set_true)
 
 
+def _normalize_counts(x, eps=1e-8):
+            return x / (x.sum(axis=1, keepdims=True) + eps) * 1e4
+
+
 def get_de_correlations(
     cf_adatas,
     k=50,
@@ -384,12 +388,9 @@ def get_de_correlations(
         mask_target = groups == "target"
         mask_cf = groups == "counterfactual"
 
-        def _normalize_counts(x, eps=1e-8):
-            return x / (x.sum(axis=1, keepdims=True) + eps)
-
         # Counterfactuals/predictions are always model-generated
         recon_all = _to_dense(adata.obsm.get("recon_x").copy())
-        recon_all = np.log1p(recon_all)
+        #recon_all = np.log1p(recon_all)
         recon_all = (
             _normalize_counts(recon_all, eps=eps) if normalize_counts else recon_all
         )
@@ -403,7 +404,7 @@ def get_de_correlations(
             else adata.layers["counts"].copy()
         )
         X_all = _to_dense(X_all)  # ensure dense array
-        X_all = np.log1p(X_all)
+        #X_all = np.log1p(X_all)
         X_all = _normalize_counts(X_all, eps=eps) if normalize_counts else X_all
 
         # compute group means (ensure arrays)
@@ -427,6 +428,9 @@ def get_de_correlations(
 
         vectors[ct] = {"gt": gt_vec, "cf": cf_vec, "genes": var_names}
 
+        deg_scores = np.abs(gt_vec)
+        top_features = np.argsort(-deg_scores)[:k]
+
         # compute Pearson and Spearman on finite entries
         valid = np.isfinite(gt_vec) & np.isfinite(cf_vec)
         if (
@@ -435,14 +439,14 @@ def get_de_correlations(
             or (np.nanstd(cf_vec[valid]) == 0)
         ):
             pear = np.nan
-            spearman = np.nan
+            spear = np.nan
         else:
-            pear, _ = pearsonr(gt_vec[valid], cf_vec[valid])
-            spearman, _ = spearmanr(gt_vec[valid], cf_vec[valid])
+            pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
+            spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
 
         prec = precision_at_k(gt_vec, cf_vec, k=k, use_abs=True)
         results.append(
-            {"celltype": ct, "pearson": pear, "spearman": spearman, f"prec@{k}": prec}
+            {"celltype": ct, "pearson": pear, "spearman": spear, f"prec@{k}": prec}
         )
 
         # plotting: create multiplot grid with 3 columns per row, one scatter per cell type
@@ -490,10 +494,11 @@ def get_de_correlations(
 
             # metrics for title
             res = next((r for r in results if r["celltype"] == ct), None)
-            pear = res["pearson"] if res is not None else np.nan
-            prec = res.get(f"prec@{k}") if res is not None else np.nan
+            pearson = np.round(res["pearson"], 3) if res is not None else np.nan
+            spearman = np.round(res["spearman"], 3) if res is not None else np.nan
+            prec = np.round(res.get(f"prec@{k}"), 3) if res is not None else np.nan
             ax.set_title(
-                f"{ct}\npearson={np.round(pear, 3) if not pd.isna(pear) else 'nan'}  prec@{k}={np.round(prec, 3) if not pd.isna(prec) else 'nan'}"
+                f"{ct}\npearson={pearson} spearman={spearman}  prec@{k}={prec}"
             )
             ax.set_xlabel(f"gt (log2 {method})")
             ax.set_ylabel(f"cf (log2 {method})")
@@ -536,11 +541,10 @@ def get_baseline_delta(
         y = adata_target.layers["counts"].toarray()
         if normalize_counts:
             # normalize to proportions
-            x /= x.sum(axis=1, keepdims=True) + eps
-            y /= y.sum(axis=1, keepdims=True) + eps
+            x = _normalize_counts(x, eps=eps)
+            y = _normalize_counts(y, eps=eps)
 
     # Compute shift vector from epithelial control to holdout
-    # delta = y.mean(axis=0) - x.mean(axis=0)
     delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
 
     return delta
@@ -574,32 +578,37 @@ def compare_observed_recon_lfc(adata, labels_key, recon_key="recon_x", eps=1e-8)
     return agreements
 
 
-def edist_observed_vs_recon(adata, labels_key, n_subsample=250, recon_key="recon_x"):
+def edist_observed_vs_recon(adata, labels_key, n_subsample=250, n_iter=10, recon_key="recon_x", deg=None):
+    holdout_cts = adata.obs[labels_key][adata.obs["is_holdout"]].unique()
     edists = {}
-    conds = ["control", "perturbed"]
-    for ct in tqdm(adata.obs[labels_key].unique()):
-        if ct == "Epithelial":
-            continue
-        edists[ct] = {}
-        for cond in conds:
-            if cond == "control":
-                adata_sub = adata[
-                    (adata.obs[labels_key] == ct)
-                    & (~adata.obs["typ"].str.contains("CRC"))
-                ]
-            else:
-                adata_sub = adata[
-                    (adata.obs[labels_key] == ct)
-                    & (adata.obs["typ"].str.contains("CRC"))
-                ]
-
-            # First log normalize both populations
-            gt_pop = np.log1p(adata_sub.layers["counts"].toarray())
-            recon_pop = np.log1p(adata_sub.obsm[recon_key])
-
+    for ct in holdout_cts:
+        target_sub = adata[
+            (adata.obs[labels_key] == ct)
+            & (adata.obs["typ"].str.contains("CRC"))
+        ]
+        control_sub = adata[
+            (adata.obs[labels_key] == ct)
+            & (~adata.obs["typ"].str.contains("CRC"))
+        ]
+        # Select features that are differentially expressed between control and holdout if deg arg supplied
+        if deg is not None:
+            mean_control = control_sub.layers["counts"].toarray().mean(axis=0)
+            mean_target = target_sub.layers["counts"].toarray().mean(axis=0)
+            deg_scores = np.abs(safe_log2_fold_change(mean_target, mean_control, eps=1e-8))
+            top_features = np.argsort(-deg_scores)[:deg]  # top k DE genes
+            #adata_sub = adata_sub[:, top_features]
+        else:
+            top_features = np.arange(target_sub.shape[1])  # all features
+        
+        # First log normalize both populations
+        gt_pop = np.log1p(target_sub.layers["counts"].toarray()[:, top_features]) # control_sub.obsm[recon_key][:, top_features]
+        recon_pop = np.log1p(target_sub.obsm[recon_key][:, top_features]) # target_sub.obsm[recon_key][:, top_features] 
+        dists = []
+        for i in tqdm(range(n_iter), desc=f"E-dist {ct}"):
             # Edist between populations
-            Xa_s = subsample_cells(gt_pop, n_subsample, seed=0)
-            Xb_s = subsample_cells(recon_pop, n_subsample, seed=0)
+            Xa_s = subsample_cells(gt_pop, n_subsample)
+            Xb_s = subsample_cells(recon_pop, n_subsample)
             edist = e_distance(Xa_s, Xb_s)
-            edists[ct][cond] = round(float(edist), 4)
+            dists.append(round(float(edist), 4))
+        edists[ct] = {'mean': np.mean(dists), 'std': np.std(dists)}
     return edists

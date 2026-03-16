@@ -4,7 +4,7 @@ Train a model holding out a cell type (leave-one-out) and save reconstructions a
 Usage (examples):
 
 python scripts/train_loo.py \
-  --adata_path /data2/a330d/datasets/cosmx/crc_wt_cosmx/crc_202.h5ad \
+  --adata_path /data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad \
   --holdout_celltype Epithelial \
   --model_class cellina \
   --model_name cond_z_False_sim_seed_0_ood
@@ -19,11 +19,11 @@ Outputs:
 
 import os
 import argparse
-import json
 import numpy as np
 import scanpy as sc
 import anndata as ad
 import sys
+import torch
 
 from pprint import pprint
 from scipy.sparse import csr_matrix
@@ -31,7 +31,7 @@ from scipy.sparse import csr_matrix
 # defaults based on notebooks (counterfactuals.ipynb)
 DEFAULT_HVGS = 2000
 DEFAULT_N_NEIGHBORS = 50
-DEFAULT_BATCH_SIZE = 4096
+DEFAULT_BATCH_SIZE = 512
 DEFAULT_SEED = 0
 COUNTS_PER_K = 1e4
 DEFAULT_LABELS_KEY = 'coarse_type'
@@ -49,13 +49,16 @@ from configs.cellina_config import MODEL_ARGS as CELLINA_MODEL_ARGS, TRAIN_ARGS 
 from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_TRAIN_ARGS, PLAN_KWARGS as CPA_PLAN_KWARGS, DO_COUNTERFACTUAL as CPA_DO_COUNTERFACTUAL
 from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL
 from configs.adata_config import ADATA_ARGS, NORMALIZE, LOG1P
+from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
+from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
+
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph'], help="one of: cellina, cpa")
+    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'cellina_mmd'], help="one of: cellina, cpa, cellina_graph, concert, cellina_mmd")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
 
     return p.parse_args()
@@ -95,20 +98,18 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
         out = model.get_normalized_expression(adata_obj, library_size=library_size, batch_size=batch_size)
         return _to_array(out)
 
-    # fallback: try model.predict
-    if hasattr(model, "predict"):
-        out = model.predict(adata_obj)
-        return _to_array(out)
-
     raise RuntimeError("Model does not expose a known reconstruction API (get_normalized_expression or predict)")
 
 
-def save_recon_adata(adata_parent, recon_array, out_path):
+def save_recon_adata(adata_parent, recon_array, out_path, latents=None):
     # build adata with only obs and var copied, and recon in obsm
     #ad_recon = ad.AnnData(X=np.zeros((adata_parent.n_obs, adata_parent.n_vars), dtype=np.float32))
     ad_recon = ad.AnnData(X=recon_array)
     ad_recon.obs = adata_parent.obs.copy()
     ad_recon.var = adata_parent.var.copy()
+    if latents is not None:
+        ad_recon.obsm[f"latents"] = latents
+        
     ad_recon.write_h5ad(out_path, compression="gzip")
     return out_path
 
@@ -264,8 +265,96 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
         else:
             model.train(**train_args)
 
+    elif mc == 'concert':
+        # CONCERT: instantiate and train using data-derived positional + attribute matrices.
+        try:
+            import sys
+            sys.path.append('/data/a330d/projects/CONCERT/src')
+            from concert_map import CONCERT
+        except Exception as e:
+            raise RuntimeError("CONCERT is not importable; ensure CONCERT code is on PYTHONPATH (see notebooks/concert.ipynb)") from e
+
+        # build pos (spatial + one-hot batch) and simple cell_atts matrix
+        # spatial coords
+        loc = np.asarray(adata.obsm['spatial']).astype(np.float32)
+        from sklearn.preprocessing import MinMaxScaler
+        scaler_sp = MinMaxScaler()
+        loc_range = 20
+        loc = scaler_sp.fit_transform(loc) * loc_range
+        loc_dim = loc.shape[1]
+        
+        # use obs.sid as batch/perturbation codes
+        sid_vals = adata.obs[batch_key].astype(str).values
+        unique_sids = np.unique(sid_vals)
+        sid_to_code = {s: i for i, s in enumerate(sorted(unique_sids))}
+        batch_code_full = np.array([sid_to_code[s] for s in sid_vals], dtype=int)
+
+        # coarse_type / labels -> code
+        ct_vals = adata.obs[labels_key].astype(str).values
+        unique_cts = np.unique(ct_vals)
+        ct_to_code = {c: i for i, c in enumerate(sorted(unique_cts))}
+        ct_code = np.array([ct_to_code[c] for c in ct_vals], dtype=int)
+
+        # map tissue regions (obs.typ) -> contiguous codes across full adata
+        tissue_names = adata.obs[domains_key].astype(str).values
+        unique_tissues = np.unique(tissue_names)
+        tissue_name_to_code = {name: i for i, name in enumerate(sorted(unique_tissues))}
+        tissue_code_full = np.array([tissue_name_to_code[s] for s in tissue_names], dtype=int)
+
+        # full cell attributes (tissue, batch)
+        cell_atts_full = np.stack([tissue_code_full, batch_code_full, ct_code], axis=1).astype(int)
+        n_batch_full = len(np.unique(batch_code_full))
+        batch_full = np.eye(n_batch_full, dtype='float32')[batch_code_full]
+
+        pos = np.concatenate((loc, batch_full), axis=1).astype(np.float32)
+        cutoff = np.ones(loc.shape[0], dtype=np.float32) * 0.5
+
+        # Prepare training and testing slices
+        train_idx = np.concatenate([splits[0], splits[1]])
+        test_idx = splits[2]
+
+        from preprocess import normalize
+        adata = normalize(adata, size_factors=True, normalize_input=True, logtrans_input=True)
+
+        # build kernel_scale & inducing points to match loc_dim and n_batch_full
+        kernel_scale_scalar = 10.0
+        kernel_scale_re = np.array([[kernel_scale_scalar] * loc_dim] * n_batch_full, dtype=float)
+        inducing_point_steps = 6
+        eps = 1e-5
+        initial_inducing_points_re = np.mgrid[0:(1+eps):(1./inducing_point_steps), 0:(1+eps):(1./inducing_point_steps)].reshape(2, -1).T * loc_range
+        initial_inducing_points_batch = np.zeros((initial_inducing_points_re.shape[0], n_batch_full), dtype=float)
+        initial_inducing_points_batch[:, 0] = 1.0
+        initial_inducing_points_re = np.concatenate((initial_inducing_points_re, initial_inducing_points_batch), axis=1).astype('float32')
+        
+        # Prepare kwargs for CONCERT constructor: allow model_args dict to supply specific values
+        concert_kwargs = dict(model_args or {})
+        # ensure required fields exist (num_genes, cell_atts, initial_inducing_points etc can be provided)
+        concert_kwargs.setdefault('cell_atts', cell_atts_full[train_idx])
+        concert_kwargs.setdefault('num_genes', adata.n_vars)
+        concert_kwargs.setdefault('N_train', len(train_idx))
+        concert_kwargs.setdefault('mask_cutoff', cutoff[train_idx])
+        concert_kwargs.setdefault('kernel_scale', kernel_scale_re)
+        concert_kwargs.setdefault('initial_inducing_points', initial_inducing_points_re)
+        concert_kwargs.setdefault('n_batch', n_batch_full)
+        
+        # instantiate
+        model = CONCERT(**concert_kwargs)
+        # call train_model with expected signature from notebook
+        train_kwargs = dict(train_args or {})
+        train_kwargs['model_weights'] = f'{save_dir}/concert_model.pt'
+        try:
+            model.train_model(
+                pos=pos[train_idx],
+                ncounts=_to_array(adata.X)[train_idx].astype("float32"),
+                raw_counts=_to_array(adata.layers['counts'][train_idx]).astype("float32"),
+                size_factors=adata.obs.get('size_factors', None)[train_idx],
+                batch=batch_full[train_idx],
+                **train_kwargs,
+            )
+        except Exception as e:
+            print("CONCERT training filed with error: ", e)
     else:
-        raise ValueError(f"Unsupported model_class: {model_class}. Supported: cellina, cpa, cellina_graph")
+        raise ValueError(f"Unsupported model_class: {model_class}. Supported: cellina, cpa, cellina_graph, concert")
 
     # try saving model with common APIs
     saved_model_path = save_dir
@@ -285,10 +374,19 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
     except Exception as e:
         print("Warning: saving model raised:", e)
 
-    return model
+    # For concert, return everything that will be used for inference to avoid redundant code
+    extras = {}
+    if mc == 'concert':
+        extras = {
+            'pos': pos,
+            'cell_atts': cell_atts_full,
+            'train_idx': train_idx,
+            'test_idx': test_idx,
+        }
+    return model, extras
 
 
-def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE):
+def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, extras={}):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
     # determine output directory: go one level up from input path and create a folder
     # named after the input file (without .h5ad). Example: abc/raw/crc_231.h5ad -> abc/crc_231/
@@ -299,42 +397,98 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     out_dir = os.path.join(parent_of_input, input_basename, holdout_celltype)
     os.makedirs(out_dir, exist_ok=True)
 
+    # for space usage reasons, subset to only relevant (OOD) cell type
+    adata = adata[adata.obs[labels_key] == holdout_celltype] if model_class.lower() != 'concert' else adata
+
     # full reconstruction
     try:
-        recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
+        recon_all = None
+        if model_class.lower() == 'concert':
+            # Get positional and attribute matrices as in training
+            pos = extras['pos']
+            cell_atts = extras['cell_atts']
+            train_idx = extras['train_idx']
+            test_idx = extras['test_idx']
+
+            sample_indices_train = torch.arange(pos[train_idx].shape[0], dtype=torch.int)
+            sample_indices_test  = torch.arange(pos[test_idx].shape[0], dtype=torch.int)
+
+            denoised, _ = model.batching_denoise_counts(X=pos[train_idx], 
+                                                        sample_index=sample_indices_train, 
+                                                        cell_atts=cell_atts[train_idx], 
+                                                        batch_size=batch_size, 
+                                                        n_samples=25)
+            denoised = denoised / (denoised.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
+            recon_all = _to_array(denoised)
+        else:
+            recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
     except Exception as e:
-        print("Failed to get reconstructions for full dataset:", e)
+        print('Reconstruction failed:', e)
         recon_all = None
 
+    # Save recon to disk
+    out_recon_path = None
     if recon_all is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
-        save_recon_adata(adata, recon_all, out_recon_path)
-        print("Saved reconstruction adata:", out_recon_path)
-    else:
-        out_recon_path = None
+        adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()
+        # Get latents
+        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
+        latents = (
+            latents
+            if model_class not in ["cpa", "concert"] 
+            else latents["latent_after"].X
+        )
+        save_recon_adata(adata_with_obs, recon_all, out_recon_path, latents=latents)
+        print('Saved recon to', out_recon_path)
 
+    # Compute counterfactuals
     out_cf_path = None
     if do_cf:
-        # find target (OOD) indices and control indices
-        is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
-        mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
-        idx_target = np.where(mask_target.values)[0]
-        mask_control = (~adata.obs['is_holdout']) & (adata.obs['coarse_type'] == holdout_celltype)
-        idx_control = np.where(mask_control.values)[0]
+        if model_class.lower() == 'concert':
+            # Prepare target cells (holdout & matching coarse_type)
+            labels = adata.obs[DEFAULT_LABELS_KEY].astype(str)
+            mask_target = (adata.obs['is_holdout']) & (labels == holdout_celltype)
+            if mask_target.sum() == 0:
+                raise RuntimeError('No target cells for counterfactual in CONCERT inference')
 
-        if len(idx_control) == 0 or len(idx_target) == 0:
-            print("No control or no target cells found for counterfactual creation; skipping CF inference.")
-            out_cf_path = None
-        else:
-            adata_cf = make_counterfactual_adata(adata, indices_basal=idx_control, indices_counterfactual=idx_target, spatial_column='spatial_x', sample=False)
+            # call counterfactualPrediction
+            perturbed_counts, _ = model.counterfactualPrediction(X=pos[test_idx], 
+                                                                    sample_index=sample_indices_test, 
+                                                                    cell_atts=cell_atts[test_idx], 
+                                                                    batch_size=batch_size, 
+                                                                    n_samples=25, 
+                                                                    perturb_cell_id=[], 
+                                                                    target_cell_tissue=cell_atts[test_idx][:,0], 
+                                                                    target_cell_perturbation=cell_atts[test_idx][:,1])
+            perturbed_counts = _to_array(perturbed_counts)
+            out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
             try:
-                recon_cf = _reconstruct_model_output(model, adata_cf, model_class, return_normalized=True, batch_size=batch_size)
-                out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
-                save_recon_adata(adata_cf, recon_cf, out_cf_path)
-                print("Saved counterfactual reconstructions:", out_cf_path)
+                save_recon_adata(adata[mask_target.values].copy(), perturbed_counts, out_cf_path)
+                print('Saved CONCERT counterfactuals to', out_cf_path)
             except Exception as e:
-                print("Counterfactual inference failed:", e)
+                print('Failed to save CONCERT counterfactuals:', e)
+        else: # model class is cellina
+            is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
+            mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
+            idx_target = np.where(mask_target.values)[0]
+            mask_control = (~adata.obs['is_holdout']) & (adata.obs['coarse_type'] == holdout_celltype)
+            idx_control = np.where(mask_control.values)[0]
+
+            if len(idx_control) == 0 or len(idx_target) == 0:
+                print("No control or no target cells found for counterfactual creation; skipping CF inference.")
                 out_cf_path = None
+            else:
+                adata_cf = make_counterfactual_adata(adata, indices_basal=idx_control, indices_counterfactual=idx_target, spatial_column='spatial_x', sample=False)
+                try:
+                    recon_cf = _reconstruct_model_output(model, adata_cf, model_class, return_normalized=True, batch_size=batch_size)
+                    out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
+                    # Get latents
+                    latents_cf = model.get_latent_representation(adata=adata_cf, batch_size=batch_size)
+                    save_recon_adata(adata_cf, recon_cf, out_cf_path, latents=latents_cf)
+                    print("Saved counterfactual reconstructions:", out_cf_path)
+                except Exception as e:
+                    print("Counterfactual inference failed:", e)
+                    out_cf_path = None
 
     return out_recon_path, out_cf_path
 
@@ -344,11 +498,18 @@ def main():
 
     # choose configs based on model_class
     mc = args.model_class.lower()
+    model_name = args.model_name
+    print(model_name)
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()
         train_args = CELLINA_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_DO_COUNTERFACTUAL
+        if model_name == 'cellina-mmd':
+            model_args = CELLINA_MMD_MODEL_ARGS.copy()
+            train_args = CELLINA_MMD_TRAIN_ARGS.copy()
+            plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
+            do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
     elif mc == 'cpa':
         model_args = CPA_MODEL_ARGS.copy()
         train_args = CPA_TRAIN_ARGS.copy()
@@ -359,6 +520,11 @@ def main():
         train_args = CELLINA_GRAPH_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_GRAPH_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_GRAPH_DO_COUNTERFACTUAL
+    elif mc == 'concert':
+        model_args = CONCERT_MODEL_ARGS.copy()
+        train_args = CONCERT_TRAIN_ARGS.copy()
+        plan_kwargs = CONCERT_PLAN_KWARGS.copy()
+        do_cf_default = CONCERT_DO_COUNTERFACTUAL
     else:
         raise ValueError(f"Unsupported model_class: {args.model_class}")
 
@@ -372,6 +538,9 @@ def main():
     
     # preprocess using ADATA_ARGS
     n_top_genes = ADATA_ARGS.get('n_top_genes', DEFAULT_HVGS)
+    labels_key = ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY)
+    domains_key = ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY)
+    batch_key = ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY)
     n_neighbors = 10 if mc=='cellina-graph' else ADATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
     adata = preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
@@ -380,8 +549,8 @@ def main():
 
     # create splits
     train_idx, val_idx, test_idx = split_indices(adata, args.holdout_celltype, 
-                                                 labels_key=ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY), 
-                                                 domains_key=ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY), 
+                                                 labels_key=labels_key, 
+                                                 domains_key=domains_key, 
                                                  seed=DEFAULT_SEED)
     splits = (train_idx, val_idx, test_idx)
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
@@ -391,25 +560,24 @@ def main():
 
     # prepare save dir for model
     sid = args.adata_path.split('/')[-1].split('.')[0]
-    model_name = args.model_name
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
     # train
-    model = train_model(adata,
+    model, extras = train_model(adata,
                         args.model_class, 
                         model_args, 
                         train_args, 
                         save_dir, 
-                        labels_key=ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY),
-                        domains_key=ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY),
-                        batch_key=ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY),
+                        labels_key=labels_key,
+                        domains_key=domains_key,
+                        batch_key=batch_key,
                         plan_kwargs=plan_kwargs, 
                         splits=splits)
     
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
-    out_recon_path, out_cf_path = run_inference(model, adata, args.adata_path, args.model_class, model_name, args.holdout_celltype, do_cf=do_cf, batch_size=batch_size)
+    out_recon_path, out_cf_path = run_inference(model, adata, args.adata_path, args.model_class, model_name, args.holdout_celltype, do_cf=do_cf, batch_size=batch_size, labels_key=labels_key, extras=extras)
 
     print("Done. Outputs:")
     pprint({

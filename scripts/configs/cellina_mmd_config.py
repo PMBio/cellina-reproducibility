@@ -5,8 +5,10 @@ MODEL_ARGS = {
     # Do not include adata here; train_loo will pass the AnnData when constructing the model
     "n_latent": 64,
     "use_observed_lib_size": True,
-    "classifier_lambda": 1.0,
-    "discriminator_lambda": 1.0,
+    "classifier_lambda": 0.0,
+    "discriminator_lambda": 0.0,
+    "mmd_lambda": 1.0,
+    "supervised": False
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
@@ -19,7 +21,7 @@ TRAIN_ARGS = {
     "early_stopping_patience": 25,
     "early_stopping_monitor": "validation_loss",
     "enable_checkpointing": True,
-    "devices": [0],
+    "devices": [1],
 }
 
 # Additional plan kwargs sometimes passed to model.train; include a reasonable default
