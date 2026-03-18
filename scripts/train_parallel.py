@@ -31,14 +31,13 @@ PY = sys.executable
 PATHS = [
     # Example: "/data2/a330d/datasets/cosmx/*.h5ad",
     #"/data2/a330d/datasets/crc/raw_zenodo/crc_110.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
 HOLDOUTS = [
     # Example: "Epithelial",
@@ -47,16 +46,17 @@ HOLDOUTS = [
     "Myeloid",
     "T_cell",
     "Epithelial",
-    "B_cell"
+    #"B_cell"
 ]
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
     #{"class": "cellina", "name": "cellina-ablated"},
-    {"class": "cellina", "name": "cellina"},
-    {"class": "cpa", "name": "cpa"},
-    #{"class": "cellina_graph", "name": "cellina-graph"}
+    #{"class": "cellina", "name": "cellina"},
+    #{"class": "cpa", "name": "cpa"},
+    {"class": "cellina_graph", "name": "cellina-graph"},
     #{"class": "concert", "name": "concert"},
+    #{"class": "scgen", "name": "scgen"},
 ]
 
 
@@ -198,6 +198,10 @@ def main():
                     concert_python = "/data/a330d/miniforge3/envs/concert/bin/python"
                     if len(cmd) > 0:
                         cmd[0] = concert_python
+                if model_class == 'scgen':
+                    scgen_python = "/data/a330d/miniforge3/envs/cellina-base/bin/python"
+                    if len(cmd) > 0:
+                        cmd[0] = scgen_python
 
                 log_path = LOG_ROOT / sid / holdout / f"{model_class}.log"
                 all_cmds.append((cmd, log_path))

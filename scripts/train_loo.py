@@ -40,7 +40,7 @@ DEFAULT_BATCH_KEY = 'sid'
 MODEL_ROOT = "/data2/a330d/data/ood/trained"
 
 # local utils
-from counterfactual_analysis import make_counterfactual_adata
+from counterfactual_analysis import _normalize_counts
 from utils import set_seed
 
 # Import configs
@@ -51,14 +51,14 @@ from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS,
 from configs.adata_config import ADATA_ARGS, NORMALIZE, LOG1P
 from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
 from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
-
+from configs.scgen_config import MODEL_ARGS as SCGEN_MODEL_ARGS, TRAIN_ARGS as SCGEN_TRAIN_ARGS, PLAN_KWARGS as SCGEN_PLAN_KWARGS, DO_COUNTERFACTUAL as SCGEN_DO_COUNTERFACTUAL
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert'], help="one of: cellina, cpa, cellina_graph, concert")
+    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'scgen'], help="one of: cellina, cpa, cellina_graph, concert, scgen")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
     p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
 
@@ -80,23 +80,27 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
     - For CPA-like models: call predict() which may write into adata_obj.obsm['CPA_pred'] or return array
     """
     model_class = model_class.lower()
-    if model_class in ("cpa",):
+    if model_class == "cpa":
         out = None
         # many CPA implementations write predictions into adata.obsm['CPA_pred']
         out = model.predict(adata_obj, batch_size=batch_size)
         if "CPA_pred" in adata_obj.obsm:
             X = _to_array(adata_obj.obsm["CPA_pred"])  # likely raw counts
-            if return_normalized:
-                X = X / (X.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
+            X = _normalize_counts(X, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else X
             return X
         if out is not None:
             return _to_array(out)
         raise RuntimeError("CPA model produced no output and did not populate adata.obsm['CPA_pred']")
 
     # other models (cellina or generic models exposing get_normalized_expression)
-    if hasattr(model, "get_normalized_expression"):
+    if "cellina" in model_class:
         library_size = COUNTS_PER_K if return_normalized else "latent"
         out = model.get_normalized_expression(adata_obj, library_size=library_size, batch_size=batch_size)
+        return _to_array(out)
+    if model_class == "scgen":
+        out = model.get_decoded_expression(adata_obj, batch_size=batch_size)
+        out = out.clip(min=0)
+        out = _normalize_counts(out, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else out
         return _to_array(out)
 
     raise RuntimeError("Model does not expose a known reconstruction API (get_normalized_expression or predict)")
@@ -265,6 +269,18 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
             model.train(**train_args, plan_kwargs=plan_kwargs)
         else:
             model.train(**train_args)
+
+    elif mc == 'scgen':
+        import pertpy as pt
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        pt.tl.Scgen.setup_anndata(adata, batch_key=domains_key, labels_key=labels_key)
+        model = pt.tl.Scgen(adata, **model_args)
+        # Add split info
+        train_args['datasplitter_kwargs'] = {
+                  "external_indexing": [splits[0], splits[1], splits[2]],
+                  }
+        model.train(**train_args, plan_kwargs=plan_kwargs)
 
     elif mc == 'concert':
         # CONCERT: instantiate and train using data-derived positional + attribute matrices.
@@ -491,8 +507,8 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             # Mark as non-control (control flag = 0)
             adata_ctrl.obs[CPA_REGISTRY_KEYS.CONTROL_KEY] = 0
 
-            # Create counterfactuals
-            cf_counts = _reconstruct_model_output(model, adata_ctrl, model_class, return_normalized=True, batch_size=batch_size)
+            # Create counterfactuals - normalizing counts at the end before saving, so set False here
+            cf_counts = _reconstruct_model_output(model, adata_ctrl, model_class, return_normalized=False, batch_size=batch_size)
             cf_latents = _get_latents(model, adata_ctrl, model_class, batch_size)
         
         if 'cellina' in model_class.lower():
@@ -504,17 +520,21 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             }
             if model_class.lower() == 'cellina_graph':
                 args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
-            
-            cf_counts = model.get_counterfactual_expression(
-                **args_gex
-            )
-            
+            cf_counts = model.get_counterfactual_expression(**args_gex)
+
             args_latents = args_gex.copy()
-            cf_latents = model.get_counterfactual_latents(
-                **args_latents
-            )
+            cf_latents = model.get_counterfactual_latents(**args_latents)
+
+        if model_class.lower() == 'scgen':
+            adata_cf, _ = model.predict(adata_to_predict=adata[idx_control].copy(),
+                                        ctrl_key="REF", 
+                                        stim_key="CRC")
+            adata_cf.X = adata_cf.X.clip(min=0)
+            cf_counts = adata_cf.X
+            cf_latents = model.get_latent_representation(adata=adata_cf, batch_size=batch_size)
         
         # Save counterfactuals
+        cf_counts = _normalize_counts(cf_counts, eps=1e-8, scale=COUNTS_PER_K)
         save_recon_adata(adata[idx_control], cf_counts, out_cf_path, latents=cf_latents)
         print(f"Saved {model_class} counterfactuals to {out_cf_path}")
 
@@ -577,6 +597,11 @@ def main():
         train_args = CONCERT_TRAIN_ARGS.copy()
         plan_kwargs = CONCERT_PLAN_KWARGS.copy()
         do_cf_default = CONCERT_DO_COUNTERFACTUAL
+    elif mc == 'scgen':
+        model_args = SCGEN_MODEL_ARGS.copy()
+        train_args = SCGEN_TRAIN_ARGS.copy()
+        plan_kwargs = SCGEN_PLAN_KWARGS.copy()
+        do_cf_default = SCGEN_DO_COUNTERFACTUAL
     else:
         raise ValueError(f"Unsupported model_class: {args.model_class}")
 
