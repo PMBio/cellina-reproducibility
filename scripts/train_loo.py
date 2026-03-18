@@ -387,6 +387,16 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
     return model, extras
 
 
+def _get_latents(model, adata, model_class, batch_size=DEFAULT_BATCH_SIZE):
+    latents = None
+    if model_class.lower() in ['cellina', 'cellina_graph']:
+        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
+    if model_class.lower() == 'cpa':
+        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
+        latents = latents["latent_after"].X
+    return latents
+
+
 def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, extras={}):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
     # determine output directory: go one level up from input path and create a folder
@@ -433,18 +443,25 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
         adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()
         # Get latents
-        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
-        latents = (
-            latents
-            if model_class not in ["cpa", "concert"] 
-            else latents["latent_after"].X
-        )
+        latents = _get_latents(model, adata, model_class, batch_size)
         save_recon_adata(adata_with_obs, recon_all, out_recon_path, latents=latents)
         print('Saved recon to', out_recon_path)
 
     # Compute counterfactuals
     out_cf_path = None
     if do_cf:
+        is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
+        mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
+        idx_target = np.where(mask_target.values)[0]
+        mask_control = (~adata.obs['is_holdout']) & (adata.obs['coarse_type'] == holdout_celltype)
+        idx_control = np.where(mask_control.values)[0]
+
+        if len(idx_control) == 0 or len(idx_target) == 0:
+            print("No control or no target cells found for counterfactual creation; skipping CF inference.")
+            out_cf_path = None
+        else:
+            out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
+
         if model_class.lower() == 'concert':
             # Prepare target cells (holdout & matching coarse_type)
             labels = adata.obs[DEFAULT_LABELS_KEY].astype(str)
@@ -461,59 +478,59 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
                                                                     perturb_cell_id=[], 
                                                                     target_cell_tissue=cell_atts[test_idx][:,0], 
                                                                     target_cell_perturbation=cell_atts[test_idx][:,1])
-            perturbed_counts = _to_array(perturbed_counts)
-            out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
-            try:
-                save_recon_adata(adata[mask_target.values].copy(), perturbed_counts, out_cf_path)
-                print('Saved CONCERT counterfactuals to', out_cf_path)
-            except Exception as e:
-                print('Failed to save CONCERT counterfactuals:', e)
+            cf_counts = _to_array(perturbed_counts)
+            cf_latents = None
+            
         if model_class.lower() == 'cpa':
-            ...
-        # if model_class contains substring 'cellina'
-        if 'cellina' in model_class.lower():
-            is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
-            mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
-            idx_target = np.where(mask_target.values)[0]
-            mask_control = (~adata.obs['is_holdout']) & (adata.obs['coarse_type'] == holdout_celltype)
-            idx_control = np.where(mask_control.values)[0]
+            from cpa._utils import CPA_REGISTRY_KEYS
+            # Subset adata - this is how CPA does counterfactuals
+            adata_ctrl = adata[idx_control].copy()
+            perturbation_idx = model.pert_encoder['CRC']
+            # Change perturbation label ctrl -> stimulated
+            adata_ctrl.obsm['perts'][:, 0] = perturbation_idx
+            # Mark as non-control (control flag = 0)
+            adata_ctrl.obs[CPA_REGISTRY_KEYS.CONTROL_KEY] = 0
 
-            if len(idx_control) == 0 or len(idx_target) == 0:
-                print("No control or no target cells found for counterfactual creation; skipping CF inference.")
-                out_cf_path = None
-            else:
-                out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
-                # 1. Get counterfactual expression
-                args_gex = {
-                    "indices": idx_control,
-                    "neighbour_indices": idx_target,
-                    "batch_size": batch_size,
-                    "seed": 0,
-                }
-                if model_class.lower() == 'cellina_graph':
-                    args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
-                cf_counts = model.get_counterfactual_expression(
-                    **args_gex
-                )
-                # 2. Get counterfactual latents
-                args_latents = args_gex.copy()
-                args_latents["latent_key"] = "shifted"
-                cf_latents = model.get_counterfactual_latents(
-                    **args_latents
-                )
-                # 3. Save counterfactuals to disk
-                save_recon_adata(adata[idx_control], cf_counts, out_cf_path, latents=cf_latents)
-                print("Saved counterfactual reconstructions:", out_cf_path)
+            # Create counterfactuals
+            cf_counts = _reconstruct_model_output(model, adata_ctrl, model_class, return_normalized=True, batch_size=batch_size)
+            cf_latents = _get_latents(model, adata_ctrl, model_class, batch_size)
+        
+        if 'cellina' in model_class.lower():
+            args_gex = {
+                "indices": idx_control,
+                "neighbour_indices": idx_target,
+                "batch_size": batch_size,
+                "seed": 0,
+            }
+            if model_class.lower() == 'cellina_graph':
+                args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
+            
+            cf_counts = model.get_counterfactual_expression(
+                **args_gex
+            )
+            
+            args_latents = args_gex.copy()
+            cf_latents = model.get_counterfactual_latents(
+                **args_latents
+            )
+        
+        # Save counterfactuals
+        save_recon_adata(adata[idx_control], cf_counts, out_cf_path, latents=cf_latents)
+        print(f"Saved {model_class} counterfactuals to {out_cf_path}")
 
     return out_recon_path, out_cf_path
 
 
-def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
+def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, splits=None):
     if model_class.lower() == 'cellina':
         from cellina import CellinaModel
         model = CellinaModel.load(save_dir, adata)
     if model_class.lower() == 'cpa':
         import cpa
+        adata.obs['dose'] = 1.0 # NOTE: dummy dose for compatibility with CPA model
+        adata.obs['data_split'] = 'train'
+        adata.obs.iloc[splits[1], adata.obs.columns.get_loc('data_split')] = 'valid'
+        adata.obs.iloc[splits[2], adata.obs.columns.get_loc('data_split')] = 'test'
         model = cpa.CPA.load(dir_path=save_dir,
                      adata=adata,
                      use_gpu=True)
@@ -606,6 +623,7 @@ def main():
                             batch_key=batch_key,
                             labels_key=labels_key,
                             domains_key=domains_key,
+                            splits=splits
                             )
         extras = {}
     else:

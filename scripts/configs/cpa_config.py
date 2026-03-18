@@ -55,4 +55,4 @@ PLAN_KWARGS = {
 }
 
 # Disable counterfactual behaviour by default for CPA
-DO_COUNTERFACTUAL = False
+DO_COUNTERFACTUAL = True
