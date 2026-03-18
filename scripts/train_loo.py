@@ -58,8 +58,9 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'cellina_mmd'], help="one of: cellina, cpa, cellina_graph, concert, cellina_mmd")
+    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert'], help="one of: cellina, cpa, cellina_graph, concert")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
+    p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
 
     return p.parse_args()
 
@@ -493,13 +494,33 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     return out_recon_path, out_cf_path
 
 
+def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
+    if model_class.lower() == 'cellina':
+        from cellina import CellinaModel
+        model = CellinaModel.load(save_dir, adata)
+    if model_class.lower() == 'cpa':
+        import cpa
+        model = cpa.CPA.load(dir_path=save_dir,
+                     adata=adata,
+                     use_gpu=True)
+    if model_class.lower() == 'cellina_graph':
+        from cellina_graph import CellinaModel
+        model = CellinaModel.load(save_dir, adata)
+    if model_class.lower() == 'concert':
+        ...
+    
+    print(f"{model_class} loaded model from {save_dir}")
+    return model
+
+
 def main():
     args = parse_args()
 
     # choose configs based on model_class
     mc = args.model_class.lower()
     model_name = args.model_name
-    print(model_name)
+    inference_only = args.inference_only
+    
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()
         train_args = CELLINA_TRAIN_ARGS.copy()
@@ -563,17 +584,27 @@ def main():
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
-    # train
-    model, extras = train_model(adata,
-                        args.model_class, 
-                        model_args, 
-                        train_args, 
-                        save_dir, 
-                        labels_key=labels_key,
-                        domains_key=domains_key,
-                        batch_key=batch_key,
-                        plan_kwargs=plan_kwargs, 
-                        splits=splits)
+    # train or load for inference only
+    if inference_only:
+        model = _load_model(save_dir, 
+                            model_class=args.model_class,
+                            adata=adata,
+                            batch_key=batch_key,
+                            labels_key=labels_key,
+                            domains_key=domains_key,
+                            )
+        extras = {}
+    else:
+        model, extras = train_model(adata,
+                            args.model_class, 
+                            model_args, 
+                            train_args, 
+                            save_dir, 
+                            labels_key=labels_key,
+                            domains_key=domains_key,
+                            batch_key=batch_key,
+                            plan_kwargs=plan_kwargs, 
+                            splits=splits)
     
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
