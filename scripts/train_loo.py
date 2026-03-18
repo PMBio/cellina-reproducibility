@@ -47,7 +47,7 @@ from utils import set_seed
 sys.path.append('./scripts')
 from configs.cellina_config import MODEL_ARGS as CELLINA_MODEL_ARGS, TRAIN_ARGS as CELLINA_TRAIN_ARGS, PLAN_KWARGS as CELLINA_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_DO_COUNTERFACTUAL
 from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_TRAIN_ARGS, PLAN_KWARGS as CPA_PLAN_KWARGS, DO_COUNTERFACTUAL as CPA_DO_COUNTERFACTUAL
-from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL
+from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED
 from configs.adata_config import ADATA_ARGS, NORMALIZE, LOG1P
 from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
 from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
@@ -468,7 +468,10 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
                 print('Saved CONCERT counterfactuals to', out_cf_path)
             except Exception as e:
                 print('Failed to save CONCERT counterfactuals:', e)
-        else: # model class is cellina
+        if model_class.lower() == 'cpa':
+            ...
+        # if model_class contains substring 'cellina'
+        if 'cellina' in model_class.lower():
             is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
             mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
             idx_target = np.where(mask_target.values)[0]
@@ -479,17 +482,28 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
                 print("No control or no target cells found for counterfactual creation; skipping CF inference.")
                 out_cf_path = None
             else:
-                adata_cf = make_counterfactual_adata(adata, indices_basal=idx_control, indices_counterfactual=idx_target, spatial_column='spatial_x', sample=False)
-                try:
-                    recon_cf = _reconstruct_model_output(model, adata_cf, model_class, return_normalized=True, batch_size=batch_size)
-                    out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
-                    # Get latents
-                    latents_cf = model.get_latent_representation(adata=adata_cf, batch_size=batch_size)
-                    save_recon_adata(adata_cf, recon_cf, out_cf_path, latents=latents_cf)
-                    print("Saved counterfactual reconstructions:", out_cf_path)
-                except Exception as e:
-                    print("Counterfactual inference failed:", e)
-                    out_cf_path = None
+                out_cf_path = os.path.join(out_dir, f"{model_name}_counterfactual_x.h5ad")
+                # 1. Get counterfactual expression
+                args_gex = {
+                    "indices": idx_control,
+                    "neighbour_indices": idx_target,
+                    "batch_size": batch_size,
+                    "seed": 0,
+                }
+                if model_class.lower() == 'cellina_graph':
+                    args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
+                cf_counts = model.get_counterfactual_expression(
+                    **args_gex
+                )
+                # 2. Get counterfactual latents
+                args_latents = args_gex.copy()
+                args_latents["latent_key"] = "shifted"
+                cf_latents = model.get_counterfactual_latents(
+                    **args_latents
+                )
+                # 3. Save counterfactuals to disk
+                save_recon_adata(adata[idx_control], cf_counts, out_cf_path, latents=cf_latents)
+                print("Saved counterfactual reconstructions:", out_cf_path)
 
     return out_recon_path, out_cf_path
 
@@ -562,7 +576,7 @@ def main():
     labels_key = ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY)
     domains_key = ADATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY)
     batch_key = ADATA_ARGS.get('batch_key', DEFAULT_BATCH_KEY)
-    n_neighbors = 10 if mc=='cellina-graph' else ADATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
+    n_neighbors = 10 if mc=='cellina_graph' else ADATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
     adata = preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
                              n_neighbors=n_neighbors,
