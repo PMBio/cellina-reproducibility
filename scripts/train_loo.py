@@ -513,6 +513,7 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
         
         if 'cellina' in model_class.lower():
             args_gex = {
+                "adata": adata,
                 "indices": idx_control,
                 "neighbour_indices": idx_target,
                 "batch_size": batch_size,
@@ -521,8 +522,7 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             if model_class.lower() == 'cellina_graph':
                 args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
             cf_counts = model.get_counterfactual_expression(**args_gex)
-
-            args_latents = args_gex.copy()
+            args_latents = args_gex.copy() # Default gets 'shifted' latents, can set 'z' or 's' here
             cf_latents = model.get_counterfactual_latents(**args_latents)
 
         if model_class.lower() == 'scgen':
@@ -665,7 +665,16 @@ def main():
     
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
-    out_recon_path, out_cf_path = run_inference(model, adata, args.adata_path, args.model_class, model_name, args.holdout_celltype, do_cf=do_cf, batch_size=batch_size, labels_key=labels_key, extras=extras)
+    out_recon_path, out_cf_path = run_inference(model, 
+                                                adata, 
+                                                args.adata_path, 
+                                                args.model_class, 
+                                                model_name, 
+                                                args.holdout_celltype, 
+                                                do_cf=do_cf, 
+                                                batch_size=batch_size, 
+                                                labels_key=labels_key, 
+                                                extras=extras)
 
     print("Done. Outputs:")
     pprint({

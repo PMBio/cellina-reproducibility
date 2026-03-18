@@ -36,7 +36,7 @@ sys.path.append('./scripts')
 from configs.adata_config import ADATA_ARGS
 from train_loo import preprocess_adata, split_indices, COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY
 from utils import set_seed
-from counterfactual_analysis import subsample_cells, e_distance, precision_at_k
+from counterfactual_analysis import subsample_cells, e_distance, precision_at_k, _normalize_counts, _mixing_index
 
 
 def parse_args():
@@ -70,10 +70,6 @@ def load_model_predicted(path):
     return adata.X, latents
 
 
-def _normalize_counts(counts, eps=1e-8):
-    return counts / (counts.sum(axis=1, keepdims=True) + eps) * COUNTS_PER_K
-
-
 def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labels_key=DEFAULT_LABELS_KEY):
     labels = adata.obs[labels_key].astype(str)
     # masks
@@ -89,7 +85,7 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
         if 'counts' not in adata.layers:
             raise RuntimeError('adata.layers["counts"] missing; cannot compute observed DE')
         X_all = _to_dense(adata.layers['counts'])
-        X_all = _normalize_counts(X_all, eps=eps)
+        X_all = _normalize_counts(X_all, eps=eps, scale=COUNTS_PER_K)
 
     # mean vectors
     if mask_control.sum() == 0 or mask_target.sum() == 0:
@@ -115,7 +111,7 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
     return float(pear), float(spear), float(prec), top_features
 
 
-def get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, n_iter= 10, use_recon=True, deg=None, use_latents=False):
+def get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, n_iter= 10, use_cf=True, deg=None, use_latents=False, local=False):
     mask_control = ~adata.obs['is_holdout']
     mask_target = adata.obs['is_holdout']
     if use_latents:
@@ -129,25 +125,40 @@ def get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, n_iter= 10, use_recon=
             pop_b = adata.uns["latents"][mask_target.values, :]
             print("Using target latents for e-distance computation")
     else:
-        # If using cell counts, e-distance is computed between target_observed and target_reconstructed
+        # If using cell counts, e-distance is computed between target_observed and target_recon or target_counterfactual
         observed_target = adata.layers["counts"][mask_target.values, :]
         observed_target = _to_dense(observed_target)
-        observed_target = _normalize_counts(observed_target)
+        observed_target = _normalize_counts(observed_target, scale=COUNTS_PER_K)
 
-        pred_target = adata.uns['recon_x'][mask_target.values, :] if use_recon else adata.uns['counterfactual_x']
-        pred_target = _normalize_counts(pred_target)
+        pred_target = adata.uns['counterfactual_x'] if use_cf else adata.uns['recon_x'][mask_target.values, :]
+        pred_target = _normalize_counts(pred_target, scale=COUNTS_PER_K)
 
-        top_features = deg if deg is not None else adata.n_vars
+        top_features = deg if deg is not None else np.arange(adata.n_vars)
         pop_a = np.log1p(observed_target[:, top_features])
         pop_b = np.log1p(pred_target[:, top_features])
+    
     edists = []
     for _ in range(n_iter):
         Xa_s = subsample_cells(pop_a, n_subsample)
         Xb_s = subsample_cells(pop_b, n_subsample)
-        edist = e_distance(Xa_s, Xb_s)
+        edist = e_distance(Xa_s, Xb_s, local=local)
         edists.append(edist)
 
     return np.mean(edists)
+
+
+def mixing_index(adata, n_clusters=2, n_pcs=50, random_state=0):
+    mask_target = adata.obs['is_holdout']
+
+    observed_target = adata.layers["counts"][mask_target.values, :]
+    observed_target = _to_dense(observed_target)
+    observed_target = _normalize_counts(observed_target, scale=COUNTS_PER_K)
+
+    pred_target = adata.uns['counterfactual_x']
+    pred_target = _to_dense(pred_target)
+    pred_target = _normalize_counts(pred_target, scale=COUNTS_PER_K)
+
+    return _mixing_index(pred_target, observed_target, n_clusters=n_clusters, n_pcs=n_pcs, random_state=random_state)
 
 
 def main():
@@ -232,12 +243,16 @@ def main():
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
       
     elif mc == 'cpa':
-        # for CPA, place recon of target cells into counterfactual field
-        mask_target = (adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
-        cf_array = recon[mask_target.values, :]
-        adata.uns['counterfactual_x'] = cf_array
+        if use_cf:
+            cf_matrix, cf_latents = load_model_predicted(cf_path)
+            adata.uns['counterfactual_latents'] = cf_latents
+            print('Loading counterfactual into adata.uns["counterfactual_x"] from', cf_path)
+        else:
+            mask_target = (adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
+            cf_matrix = recon[mask_target.values, :]
+            print('Placing recon(target) into adata.uns["counterfactual_x"]')
+        adata.uns['counterfactual_x'] = cf_matrix
         cf_loaded = True
-        print('CPA mode: placed recon(target) into adata.uns["counterfactual_x"]')
     else:
         # for cellina-like, load counterfactuals or recons depending on input arg
         try:
@@ -262,16 +277,23 @@ def main():
     # compute correlations
     pear, spear, precision_at_k, deg = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
 
-    # compute edistance between gt and predicted OOD populations - cell level
+    # compute edistance between observed and counterfactual OOD populations - cell level
     edist_cells = None
     if mc != 'baseline':
         edist_recon = True if mc in ['cpa', 'cellina', 'cellina_graph'] else False
-        edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_recon=edist_recon, deg=deg)
+        edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg)
 
     # compute edistance between control and OOD populations - latent level
     edist_latents = None
     if mc != 'baseline':
         edist_latents = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_latents=True)
+
+    # compute local edistance between observed and counterfactual OOD populations - cell level
+    edist_local = None
+    if mc != 'baseline':
+        edist_local = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, local=True, use_cf=use_cf, deg=deg)
+
+    mix_idx = mixing_index(adata, n_clusters=2, n_pcs=50, random_state=DEFAULT_SEED,)
 
     # save results json
     out_dir = '/data2/a330d/datasets/crc/correlations'
@@ -282,7 +304,14 @@ def main():
     out_fname = f"{sid}_{model_name_save}_{holdout_ct}"
     out_path = os.path.join(out_dir, f"{out_fname}.json")
     with open(out_path, 'w') as fh:
-        json.dump({'pearson': pear, 'spearman': spear, 'edistance_cells': edist_cells, 'edistance_latents': edist_latents, f'precision@{PRECISION_AT_K}': precision_at_k}, fh)
+        json.dump({'pearson': pear, 
+                   'spearman': spear, 
+                   'edistance_cells': edist_cells, 
+                   'edistance_latents': edist_latents,
+                   'edistance_local': edist_local,
+                   'mixing_index': mix_idx,
+                   f'precision@{PRECISION_AT_K}': precision_at_k,
+                   }, fh)
 
     print('Saved correlations to', out_path)
 
