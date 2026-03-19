@@ -668,7 +668,6 @@ def get_baseline_delta(
     use_celltypes,
     labels_col,
     library_size="latent",
-    normalize_counts=False,
     use_recon=False,
     eps=1e-8,
 ):
@@ -687,13 +686,12 @@ def get_baseline_delta(
     else:
         x = adata_control.layers["counts"].toarray()
         y = adata_target.layers["counts"].toarray()
-        if normalize_counts:
-            # normalize to proportions
-            x = _normalize_counts(x, eps=eps)
-            y = _normalize_counts(y, eps=eps)
+        x = _normalize_counts(x)
+        y = _normalize_counts(y)
 
     # Compute shift vector from epithelial control to holdout
-    delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
+    #delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
+    delta = (np.mean(np.log1p(y), axis=0) - np.mean(np.log1p(x), axis=0))
 
     return delta
 

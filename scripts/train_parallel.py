@@ -29,23 +29,22 @@ PY = sys.executable
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
 PATHS = [
-    # Example: "/data2/a330d/datasets/cosmx/*.h5ad",
+    # Example: "/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
     #"/data2/a330d/datasets/crc/raw_zenodo/crc_110.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
 HOLDOUTS = [
     # Example: "Epithelial",
-    "Fibroblast",
     "Endothelial",
+    "Epithelial",
+    "Fibroblast",
     "Myeloid",
     "T_cell",
-    "Epithelial",
     #"B_cell"
 ]
 MODELS = [
@@ -55,9 +54,9 @@ MODELS = [
     #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
     #{"class": "cellina_graph", "name": "cellina-graph"},
     #{"class": "concert", "name": "concert"},
-    {"class": "scgen", "name": "scgen"},
-    {"class": "cellina", "name": "cellina-mmd"},
-    {"class": "cellina", "name": "cellina-ablated"},
+    {"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
+    #{"class": "cellina", "name": "cellina-mmd"},
+    #{"class": "cellina", "name": "cellina-ablated"},
 ]
 
 

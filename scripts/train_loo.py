@@ -74,7 +74,7 @@ def _to_array(x):
     return np.asarray(x)
 
 
-def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=False, batch_size=4096):
+def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=False, batch_size=512):
     """Model-agnostic adapter to obtain reconstructions for adata_obj as numpy array.
     - For scvi/cellina: use get_normalized_expression if available
     - For CPA-like models: call predict() which may write into adata_obj.obsm['CPA_pred'] or return array
@@ -410,10 +410,12 @@ def _get_latents(model, adata, model_class, batch_size=DEFAULT_BATCH_SIZE):
     if model_class.lower() == 'cpa':
         latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
         latents = latents["latent_after"].X
+    if model_class.lower() == 'scgen':
+        latents = model.get_latent_representation(adata=adata, batch_size=batch_size)
     return latents
 
 
-def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, extras={}):
+def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, extras={}):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
     # determine output directory: go one level up from input path and create a folder
     # named after the input file (without .h5ad). Example: abc/raw/crc_231.h5ad -> abc/crc_231/
@@ -449,6 +451,7 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             recon_all = _to_array(denoised)
         else:
             recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
+            latents = _get_latents(model, adata, model_class, batch_size)
     except Exception as e:
         print('Reconstruction failed:', e)
         recon_all = None
@@ -457,19 +460,17 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     out_recon_path = None
     if recon_all is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
-        adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()
-        # Get latents
-        latents = _get_latents(model, adata, model_class, batch_size)
+        adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()        
         save_recon_adata(adata_with_obs, recon_all, out_recon_path, latents=latents)
         print('Saved recon to', out_recon_path)
 
     # Compute counterfactuals
     out_cf_path = None
     if do_cf:
-        is_tumor_region = adata.obs['typ'].astype(str).str.contains('CRC', regex=True)
-        mask_target = is_tumor_region & (adata.obs['coarse_type'].astype(str) == holdout_celltype)
+        is_tumor_region = adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)
+        mask_target = is_tumor_region & (adata.obs[labels_key].astype(str) == holdout_celltype)
         idx_target = np.where(mask_target.values)[0]
-        mask_control = (~adata.obs['is_holdout']) & (adata.obs['coarse_type'] == holdout_celltype)
+        mask_control = (~adata.obs['is_holdout']) & (adata.obs[labels_key] == holdout_celltype)
         idx_control = np.where(mask_control.values)[0]
 
         if len(idx_control) == 0 or len(idx_target) == 0:
@@ -513,7 +514,6 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
         
         if 'cellina' in model_class.lower():
             args_gex = {
-                "adata": adata,
                 "indices": idx_control,
                 "neighbour_indices": idx_target,
                 "batch_size": batch_size,
@@ -521,6 +521,8 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             }
             if model_class.lower() == 'cellina_graph':
                 args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
+            else:
+                args_gex["adata"] = adata
             cf_counts = model.get_counterfactual_expression(**args_gex)
             args_latents = args_gex.copy() # Default gets 'shifted' latents, can set 'z' or 's' here
             cf_latents = model.get_counterfactual_latents(**args_latents)
@@ -541,7 +543,7 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     return out_recon_path, out_cf_path
 
 
-def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, splits=None):
+def _load_model(save_dir, model_class, adata, splits=None):
     if model_class.lower() == 'cellina':
         from cellina import CellinaModel
         model = CellinaModel.load(save_dir, adata)
@@ -554,6 +556,11 @@ def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, label
         model = cpa.CPA.load(dir_path=save_dir,
                      adata=adata,
                      use_gpu=True)
+    if model_class.lower() == 'scgen':
+        import pertpy as pt
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        model = pt.tl.Scgen.load(save_dir, adata)
     if model_class.lower() == 'cellina_graph':
         from cellina_graph import CellinaModel
         model = CellinaModel.load(save_dir, adata)
@@ -562,6 +569,20 @@ def _load_model(save_dir, model_class, adata, batch_key=DEFAULT_BATCH_KEY, label
     
     print(f"{model_class} loaded model from {save_dir}")
     return model
+
+
+def subset_adata(adata, proportion=0.3, random_state=0):
+    n_cells = adata.n_obs
+    n_subsample = int(n_cells * proportion)
+
+    # Randomly choose cell indices
+    np.random.seed(random_state)  # for reproducibility
+    subsample_idx = np.random.choice(n_cells, n_subsample, replace=False)
+
+    # Create the subsampled AnnData
+    adata = adata[subsample_idx].copy()
+
+    return adata
 
 
 def main():
@@ -617,7 +638,10 @@ def main():
     # load adata
     print("Loading adata:", args.adata_path)
     adata = sc.read(args.adata_path)
-    
+
+    # Subset the data - Put in for scgen slide 120, otherwise segmentation fault for (probably) RAM/VRAM reasons
+    # adata = subset_adata(adata, proportion=0.3, random_state=0)
+
     # preprocess using ADATA_ARGS
     n_top_genes = ADATA_ARGS.get('n_top_genes', DEFAULT_HVGS)
     labels_key = ADATA_ARGS.get('labels_key', DEFAULT_LABELS_KEY)
@@ -650,9 +674,6 @@ def main():
         model = _load_model(save_dir, 
                             model_class=args.model_class,
                             adata=adata,
-                            batch_key=batch_key,
-                            labels_key=labels_key,
-                            domains_key=domains_key,
                             splits=splits
                             )
         extras = {}
@@ -678,7 +699,8 @@ def main():
                                                 args.holdout_celltype, 
                                                 do_cf=do_cf, 
                                                 batch_size=batch_size, 
-                                                labels_key=labels_key, 
+                                                labels_key=labels_key,
+                                                domains_key=domains_key,
                                                 extras=extras)
 
     print("Done. Outputs:")

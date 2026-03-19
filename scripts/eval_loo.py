@@ -43,7 +43,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "concert"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "concert", "scgen"]) 
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")
@@ -226,7 +226,6 @@ def main():
             use_celltypes=all_cts,
             labels_col=labels_key,
             library_size="latent",
-            normalize_counts=True,
             use_recon=use_recon,
             eps=1e-8,
         )
@@ -235,65 +234,51 @@ def main():
         if 'counts' not in adata.layers:
             raise RuntimeError('adata.layers["counts"] missing; cannot compute baseline counterfactual')
         counts = _to_dense(adata.layers['counts'])
-        cf_matrix = counts[mask_control.values, :] + delta
+        #cf_matrix = counts[mask_control.values, :] + delta
+        cf_matrix = counts[mask_control.values, :] * (2 ** delta)
         cf_matrix = np.clip(cf_matrix, a_min=0, a_max=None)
         cf_matrix = cf_matrix / (cf_matrix.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
         # store only control-matching rows (compute_correlations can handle subset shape)
         adata.uns['counterfactual_x'] = cf_matrix
         print('Baseline counterfactual stored in adata.uns["counterfactual_x"]')
-      
-    elif mc == 'cpa':
+    # If not baseline - works for cellina-like, cpa, scgen
+    else:
         if use_cf:
             cf_matrix, cf_latents = load_model_predicted(cf_path)
-            adata.uns['counterfactual_latents'] = cf_latents
-            print('Loading counterfactual into adata.uns["counterfactual_x"] from', cf_path)
+            print('Loaded counterfactual into adata.uns["counterfactual_x"] from', cf_path)
         else:
             mask_target = (adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
             cf_matrix = recon[mask_target.values, :]
-            print('Placing recon(target) into adata.uns["counterfactual_x"]')
+            cf_latents = latents[mask_target.values, :]
+            print('Loaded recons into adata.uns["counterfactual_x"]')
         adata.uns['counterfactual_x'] = cf_matrix
+        adata.uns['counterfactual_latents'] = cf_latents
         cf_loaded = True
-    else:
-        # for cellina-like, load counterfactuals or recons depending on input arg
-        try:
-            if use_cf:
-                cf_matrix, cf_latents = load_model_predicted(cf_path)
-                print('Loaded counterfactual into adata.uns["counterfactual_x"] from', cf_path)
-            else:
-                mask_target = (adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
-                cf_matrix = recon[mask_target.values, :]
-                cf_latents = latents[mask_target.values, :]
-                print('Loaded recons into adata.uns["counterfactual_x"]')
-            adata.uns['counterfactual_x'] = cf_matrix
-            adata.uns['counterfactual_latents'] = cf_latents
-            cf_loaded = True
-        except Exception as e:
-            print(f"Could not load counterfactual from {cf_path}: {e}")
-            cf_loaded = False
 
     if not cf_loaded and mc != 'baseline':
         raise FileNotFoundError(f"No counterfactual available for evaluation (tried {cf_path} and CPA fallback).")
 
-    # compute correlations
+    # 1. compute correlations
     pear, spear, precision_at_k, deg = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
 
-    # compute edistance between observed and counterfactual OOD populations - cell level
+    # 2. compute edistance between observed and counterfactual OOD populations - cell level
     edist_cells = None
-    if mc != 'baseline':
-        edist_recon = True if mc in ['cpa', 'cellina', 'cellina_graph'] else False
-        edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg)
+    edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg)
 
-    # compute edistance between control and OOD populations - latent level
+    # 3. compute edistance between control and OOD populations - latent level
     edist_latents = None
-    if mc != 'baseline':
+    # skip latent edistance if either 1) mc is baseline or 2) sid is 120 and mc is scgen - only have partial recons for scgen-120 (probably) because of RAM/VRAM
+    if mc == 'baseline' or (sid == 'crc_120' and mc == 'scgen'):
+        print("Skipping latent edistances")
+    else:
         edist_latents = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_latents=True)
 
-    # compute local edistance between observed and counterfactual OOD populations - cell level
+    # 4. compute local edistance between observed and counterfactual OOD populations - cell level
     edist_local = None
-    if mc != 'baseline':
-        edist_local = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, local=True, use_cf=use_cf, deg=deg)
+    edist_local = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg, local=True)
 
-    mix_idx = mixing_index(adata, n_clusters=2, n_pcs=50, random_state=DEFAULT_SEED,)
+    # 5. compute mixing index
+    mix_idx = mixing_index(adata, n_clusters=2, n_pcs=50, random_state=DEFAULT_SEED)
 
     # save results json
     out_dir = '/data2/a330d/datasets/crc/correlations'
