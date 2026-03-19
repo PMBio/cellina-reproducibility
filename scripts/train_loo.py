@@ -52,7 +52,7 @@ from configs.adata_config import ADATA_ARGS, NORMALIZE, LOG1P
 from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
 from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
 from configs.scgen_config import MODEL_ARGS as SCGEN_MODEL_ARGS, TRAIN_ARGS as SCGEN_TRAIN_ARGS, PLAN_KWARGS as SCGEN_PLAN_KWARGS, DO_COUNTERFACTUAL as SCGEN_DO_COUNTERFACTUAL
-
+from configs.cellina_ablated_config import MODEL_ARGS as CELLINA_ABLATED_MODEL_ARGS, TRAIN_ARGS as CELLINA_ABLATED_TRAIN_ARGS, PLAN_KWARGS as CELLINA_ABLATED_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_ABLATED_DO_COUNTERFACTUAL
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -582,6 +582,11 @@ def main():
             train_args = CELLINA_MMD_TRAIN_ARGS.copy()
             plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
             do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
+        if model_name == 'cellina-ablated':
+            model_args = CELLINA_ABLATED_MODEL_ARGS.copy()
+            train_args = CELLINA_ABLATED_TRAIN_ARGS.copy()
+            plan_kwargs = CELLINA_ABLATED_PLAN_KWARGS.copy()
+            do_cf_default = CELLINA_ABLATED_DO_COUNTERFACTUAL
     elif mc == 'cpa':
         model_args = CPA_MODEL_ARGS.copy()
         train_args = CPA_TRAIN_ARGS.copy()
