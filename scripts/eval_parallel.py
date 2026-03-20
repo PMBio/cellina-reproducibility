@@ -50,7 +50,7 @@ MODELS = [
     #{"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
-    #{"class": "cellina_graph", "name": "cellina-graph"},
+    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
     #{"class": "concert", "name": "concert"},
     #{"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},

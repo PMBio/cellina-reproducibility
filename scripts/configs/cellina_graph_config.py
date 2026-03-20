@@ -10,12 +10,13 @@ MODEL_ARGS = {
     "link_prediction_weight": 1.0,
     "n_layers": 3,
     "convolution_type": 'gat',
+    "gene_likelihood": 'nb',
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
-    "max_epochs": 2,
+    "max_epochs": 100,
     "batch_size": 256,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,

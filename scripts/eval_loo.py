@@ -220,22 +220,23 @@ def main():
         labels_key = DEFAULT_LABELS_KEY
         all_cts = list(adata.obs[labels_key].dropna().unique())
         # get_baseline_delta does not require a model when use_recon=False
+        adata_train = adata[~adata.obs["is_holdout"]].copy()
         delta = get_baseline_delta(
-            adata,
+            adata_train,
             model=None,
             use_celltypes=all_cts,
             labels_col=labels_key,
             library_size="latent",
             use_recon=use_recon,
-            eps=1e-8,
         )
         # apply delta to control cells (holdout celltype & not CRC)
         mask_control = (~adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)) & (adata.obs[labels_key].astype(str) == holdout_ct)
         if 'counts' not in adata.layers:
             raise RuntimeError('adata.layers["counts"] missing; cannot compute baseline counterfactual')
         counts = _to_dense(adata.layers['counts'])
-        #cf_matrix = counts[mask_control.values, :] + delta
-        cf_matrix = counts[mask_control.values, :] * (2 ** delta)
+        # For log2, but we compute delta on log1 so just take exp
+        #cf_matrix = counts[mask_control.values, :] * (2 ** delta)
+        cf_matrix = (counts[mask_control.values, :] + 1) * np.exp(delta) - 1
         cf_matrix = np.clip(cf_matrix, a_min=0, a_max=None)
         cf_matrix = cf_matrix / (cf_matrix.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
         # store only control-matching rows (compute_correlations can handle subset shape)

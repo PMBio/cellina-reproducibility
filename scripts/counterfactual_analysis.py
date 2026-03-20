@@ -669,7 +669,6 @@ def get_baseline_delta(
     labels_col,
     library_size="latent",
     use_recon=False,
-    eps=1e-8,
 ):
     # Take log fold change delta of in-sample control and CRC populations
     adata_control = adata[
@@ -686,8 +685,8 @@ def get_baseline_delta(
     else:
         x = adata_control.layers["counts"].toarray()
         y = adata_target.layers["counts"].toarray()
-        x = _normalize_counts(x)
-        y = _normalize_counts(y)
+        #x = _normalize_counts(x)
+        #y = _normalize_counts(y)
 
     # Compute shift vector from epithelial control to holdout
     #delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
