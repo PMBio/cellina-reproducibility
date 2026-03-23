@@ -338,7 +338,7 @@ def run_cellina_mmd_model(
                 batch_size=batch_size,
                 **train_kwargs,
             ),
-            model_name="cellina",
+            model_name="cellina-mmd",
             num_epochs=max_epochs,
             dataset_name=dataset_name,
             dataset_size=adata.n_obs,

@@ -17,9 +17,9 @@ from scvi.train._callbacks import SaveCheckpoint
 import torch
 
 METHODS = {
-    "SCVI": run_scvi_model,
     "CELLINA": run_cellina_model,
     "CELLINA-MMD": run_cellina_mmd_model,
+    "SCVI": run_scvi_model,
     "SCANVI": run_scanvi_model,
     "scVIVA": run_scviva_model,
     "PCA": run_pca_baseline,
