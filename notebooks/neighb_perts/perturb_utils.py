@@ -75,6 +75,9 @@ def load_crc_slide(
     adata.obs[labels_key] = adata.obs[labels_key].astype("category")
     adata.obsm["spatial"] = adata.obs[["CenterX_global_px", "CenterY_global_px"]].values
     adata.layers["counts"] = adata.X.copy()
+    
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.log1p(adata)
 
     sc.pp.highly_variable_genes(
         adata, layer="counts", flavor="seurat_v3", n_top_genes=n_top_genes, subset=True
