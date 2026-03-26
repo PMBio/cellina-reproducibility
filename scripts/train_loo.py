@@ -99,7 +99,8 @@ def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=F
         return _to_array(out)
     if model_class == "scgen":
         out = model.get_decoded_expression(adata_obj, batch_size=batch_size)
-        out = out.clip(min=0)
+        out = out.clip(min=1e-8)
+        out = np.clip(np.expm1(out), 0, None)
         out = _normalize_counts(out, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else out
         return _to_array(out)
 
@@ -184,16 +185,14 @@ def preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT
         adata.obsm['spatial'] = adata.obs[['CenterX_global_px', 'CenterY_global_px']].values
 
     try:
-        from cellina._spatial_utils import spatial_neighbors
+        from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
         spatial_neighbors(adata, bandwidth=np.inf, max_neighbours=n_neighbors, standardize=False)
     except Exception as e:
         print("Warning: spatial_neighbors failed or cellina not available:", e)
 
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
-    adata.obsm['spatial_x'] = adata.obsp['spatial_connectivities'] @ adata.X / n_neighbors
-    # float32
-    adata.obsm['spatial_x'] = csr_matrix(adata.obsm['spatial_x']).astype(np.float32)
+    compute_spatial_features(adata)
     
     adata.X = adata.layers['counts'].copy()
 
@@ -206,7 +205,9 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
     model = None
 
     if mc == 'cellina':
+        import cellina
         from cellina import CellinaModel
+        print("cellina version: ", cellina.__version__)
         CellinaModel.setup_anndata(adata, 
                                    batch_key=batch_key, 
                                    labels_key=labels_key, 
@@ -415,7 +416,7 @@ def _get_latents(model, adata, model_class, batch_size=DEFAULT_BATCH_SIZE):
     return latents
 
 
-def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, extras={}):
+def run_inference(model, adata, adata_path, model_class, model_name, holdout_celltype, do_cf=True, batch_size=DEFAULT_BATCH_SIZE, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, return_normalized=False, extras={}):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
     # determine output directory: go one level up from input path and create a folder
     # named after the input file (without .h5ad). Example: abc/raw/crc_231.h5ad -> abc/crc_231/
@@ -450,7 +451,7 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             denoised = denoised / (denoised.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
             recon_all = _to_array(denoised)
         else:
-            recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=True, batch_size=batch_size)
+            recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=return_normalized, batch_size=batch_size)
             latents = _get_latents(model, adata, model_class, batch_size)
     except Exception as e:
         print('Reconstruction failed:', e)
@@ -531,12 +532,13 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             adata_cf, _ = model.predict(adata_to_predict=adata[idx_control].copy(),
                                         ctrl_key="REF", 
                                         stim_key="CRC")
-            adata_cf.X = adata_cf.X.clip(min=0)
+            adata_cf.X = adata_cf.X.clip(min=1e-8)
             cf_counts = adata_cf.X
+            cf_counts = np.clip(np.expm1(cf_counts), 0, None)
             cf_latents = model.get_latent_representation(adata=adata_cf, batch_size=batch_size)
         
         # Save counterfactuals
-        cf_counts = _normalize_counts(cf_counts, eps=1e-8, scale=COUNTS_PER_K)
+        cf_counts = _normalize_counts(cf_counts, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else cf_counts
         save_recon_adata(adata[idx_control], cf_counts, out_cf_path, latents=cf_latents)
         print(f"Saved {model_class} counterfactuals to {out_cf_path}")
 
@@ -592,6 +594,8 @@ def main():
     mc = args.model_class.lower()
     model_name = args.model_name
     inference_only = args.inference_only
+    normalize_counts = False
+    sid = args.adata_path.split('/')[-1].split('.')[0]
     
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()
@@ -640,7 +644,8 @@ def main():
     adata = sc.read(args.adata_path)
 
     # Subset the data - Put in for scgen slide 120, otherwise segmentation fault for (probably) RAM/VRAM reasons
-    # adata = subset_adata(adata, proportion=0.3, random_state=0)
+    if (sid == 'crc_120' and mc == 'scgen'):
+        adata = subset_adata(adata, proportion=0.3, random_state=0)
 
     # preprocess using ADATA_ARGS
     n_top_genes = ADATA_ARGS.get('n_top_genes', DEFAULT_HVGS)
@@ -665,7 +670,6 @@ def main():
     do_cf = bool(do_cf_default)
 
     # prepare save dir for model
-    sid = args.adata_path.split('/')[-1].split('.')[0]
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -701,6 +705,7 @@ def main():
                                                 batch_size=batch_size, 
                                                 labels_key=labels_key,
                                                 domains_key=domains_key,
+                                                return_normalized=normalize_counts,
                                                 extras=extras)
 
     print("Done. Outputs:")

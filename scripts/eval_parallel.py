@@ -28,13 +28,14 @@ PY = sys.executable
 # Populate these lists manually
 PATHS = [
     # Example: #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
+
 HOLDOUTS = [
     # Example: "Epithelial",
     "Endothelial",
@@ -44,11 +45,12 @@ HOLDOUTS = [
     "T_cell",
     #"B_cell"
 ]
+# TODO: Run eval for everything again because of correlation norm change
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina"}
-    {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
+    #{"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina"},
-    #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
     #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
     #{"class": "concert", "name": "concert"},

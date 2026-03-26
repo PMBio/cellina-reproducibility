@@ -28,7 +28,7 @@ from counterfactual_analysis import safe_log2_fold_change, get_baseline_delta
 import pandas as pd
 
 DEFAULT_SEED = 0
-PRECISION_AT_K = 50
+PRECISION_AT_K = 200
 EDISTANCE_SUBSAMPLE = 500
 
 # reuse preprocessing defaults from configs
@@ -96,6 +96,7 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
 
     # counterfactual: may be aligned full matrix or subset stored in adata.uns['counterfactual_x']
     cf = adata.uns['counterfactual_x']
+    cf = _normalize_counts(cf, eps=eps, scale=COUNTS_PER_K)
     mean_cf = np.nanmean(cf, axis=0)
 
     # compute log2 fold changes
@@ -107,7 +108,18 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
     pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
     spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
     prec = precision_at_k(gt_vec, cf_vec, k=PRECISION_AT_K, use_abs=True)
-
+    """
+    # Plot scatterplot of gt vs cf log fold changes - highlight top features in a different color
+    import matplotlib.pyplot as plt
+    plt.scatter(gt_vec, cf_vec)
+    plt.xlabel('Ground Truth Log2 Fold Change')
+    plt.ylabel('Counterfactual Log2 Fold Change')
+    plt.title('GT vs CF Log2 Fold Change')
+    
+    # highlight top features in a different color
+    plt.scatter(gt_vec[top_features], cf_vec[top_features], color='red')
+    plt.show()
+    """
     return float(pear), float(spear), float(prec), top_features
 
 
@@ -131,7 +143,7 @@ def get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, n_iter= 10, use_cf=Tru
         observed_target = _normalize_counts(observed_target, scale=COUNTS_PER_K)
 
         pred_target = adata.uns['counterfactual_x'] if use_cf else adata.uns['recon_x'][mask_target.values, :]
-        pred_target = _normalize_counts(pred_target, scale=COUNTS_PER_K)
+        #pred_target = _normalize_counts(pred_target, scale=COUNTS_PER_K)
 
         top_features = deg if deg is not None else np.arange(adata.n_vars)
         pop_a = np.log1p(observed_target[:, top_features])
