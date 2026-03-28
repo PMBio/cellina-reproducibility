@@ -46,6 +46,7 @@ def evaluate_models(
     target_col,
     latent_key="z",
     root_dir="trained",
+    batch_size=1024,
 ):
     """Evaluate trained models via linear classifier on latent space."""
     from cellina import CellinaModel
@@ -59,7 +60,7 @@ def evaluate_models(
             model = CellinaModel.load(save_path, adata)
 
             adata.obsm[latent_key] = model.get_latent_representation(
-                latent_key=latent_key
+                latent_key=latent_key, batch_size=batch_size
             )
 
             X_train = adata[~adata.obs["is_holdout"]].obsm[latent_key]
