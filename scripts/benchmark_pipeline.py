@@ -247,7 +247,7 @@ def run_cellina_model(
             lambda: model.train(
                 max_epochs=max_epochs,
                 plan_kwargs={
-                    'lr': 1e-4,
+                    'lr': 1e-3,
                     'normalize_losses': True,
                 },
                 datasplitter_kwargs=data_splitter_kwargs,
@@ -265,7 +265,7 @@ def run_cellina_model(
         model.train(
             max_epochs=max_epochs,
             plan_kwargs={
-                'lr': 1e-4,
+                'lr': 1e-3,
                 'normalize_losses': True,
             },
             datasplitter_kwargs=data_splitter_kwargs,
@@ -437,7 +437,7 @@ def run_scanvi_model(
     
     if profiler:
         profile_training(
-            lambda: scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, plan_kwargs={"lr": 1e-5}, **train_kwargs),
+            lambda: scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs),
             model_name="scanvi",
             num_epochs=max_epochs,
             dataset_name=dataset_name,
@@ -495,7 +495,7 @@ def run_scviva_model(
 
     if profiler:
         profile_training(
-            lambda: nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, plan_kwargs={"lr": 1e-5}, **train_kwargs),
+            lambda: nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs),
             model_name="scviva",
             num_epochs=max_epochs,
             dataset_name=dataset_name,
@@ -506,7 +506,7 @@ def run_scviva_model(
     else:
         nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
 
-    adata.obsm["scVIVA"] = nichevae.get_latent_representation()
+    adata.obsm["scVIVA"] = nichevae.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)
 
 def run_simvi_in_subprocess(
