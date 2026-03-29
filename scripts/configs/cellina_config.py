@@ -26,7 +26,7 @@ TRAIN_ARGS = {
 
 # Additional plan kwargs sometimes passed to model.train; include a reasonable default
 PLAN_KWARGS = {
-    "lr": 1e-4,
+    "lr": 1e-3,
     "normalize_losses": True,
 }
 

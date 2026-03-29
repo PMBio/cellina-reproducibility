@@ -5,6 +5,7 @@ MODEL_ARGS = {
     # Do not include adata here; train_loo will pass the AnnData when constructing the model
     "n_latent": 64,
     "use_observed_lib_size": True,
+    "condition_on_intrinsic": False,
     "classifier_lambda": 1.0,
     "discriminator_lambda": 1.0,
     "link_prediction_weight": 1.0,
