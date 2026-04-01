@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import scanpy as sc
 import torch
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from scipy.stats import pearsonr, spearmanr
+
+
+# ---------------------------------------------------------------------------
+# Shared defaults
+# ---------------------------------------------------------------------------
+
+DEFAULT_GROUPBY = [
+    "Fibroblast",
+    "Endothelial",
+    "Myeloid",
+    "T_cell",
+    "Epithelial",
+    "B_cell",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +99,114 @@ def load_crc_slide(
     )
 
     return adata
+
+
+# ---------------------------------------------------------------------------
+# Pseudobulk logFC
+# ---------------------------------------------------------------------------
+
+def _get_domain_labels(adata, domains_key: str) -> tuple[str, str]:
+    """Infer the REF and CRC domain labels from adata.obs[domains_key].
+
+    Scans the unique values for entries containing 'REF' and 'CRC' so the
+    exact label format (e.g. '242_REF') never needs to be hardcoded.
+    """
+    unique = adata.obs[domains_key].astype(str).unique()
+    ref_matches = [d for d in unique if "REF" in d]
+    crc_matches = [d for d in unique if "CRC" in d]
+    if len(ref_matches) != 1:
+        raise ValueError(
+            f"Expected exactly 1 domain containing 'REF', found: {ref_matches}"
+        )
+    if len(crc_matches) != 1:
+        raise ValueError(
+            f"Expected exactly 1 domain containing 'CRC', found: {crc_matches}"
+        )
+    return ref_matches[0], crc_matches[0]
+
+
+def compute_pseudobulk_logfc(
+    adata,
+    labels_key: str = "coarse_type",
+    domains_key: str = "typ",
+) -> tuple:
+    """Pseudobulk sum → normalize → log1p → logFC (CRC − REF) per cell type.
+
+    Parameters
+    ----------
+    adata
+        AnnData with ``layers['counts']``, ``obs[labels_key]``, ``obs[domains_key]``.
+    labels_key
+        obs column for cell-type labels.
+    domains_key
+        obs column for domain labels (must contain exactly one value with 'REF'
+        and one with 'CRC').
+
+    Returns
+    -------
+    domain_logfc_df
+        DataFrame of shape (n_cell_types, n_genes) with logFC values.
+    ref_label
+        The REF domain label inferred from the data.
+    crc_label
+        The CRC domain label inferred from the data.
+    """
+    import decoupler as dc
+
+    ref_label, crc_label = _get_domain_labels(adata, domains_key)
+
+    pdata = dc.pp.pseudobulk(
+        adata=adata,
+        sample_col=domains_key,
+        groups_col=labels_key,
+        mode="sum",
+        layer="counts",
+    )
+    sc.pp.normalize_total(pdata, target_sum=1e4)
+    sc.pp.log1p(pdata)
+
+    cell_types = [
+        ct for ct in pdata.obs[labels_key].unique()
+        if (
+            ((pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)).any()
+            and ((pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)).any()
+        )
+    ]
+
+    domain_logfc_df = pd.concat(
+        [
+            pd.Series(
+                (
+                    pdata[
+                        (pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)
+                    ].X
+                    - pdata[
+                        (pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)
+                    ].X
+                ).flatten(),
+                index=pdata.var_names,
+                name=ct,
+            )
+            for ct in cell_types
+        ],
+        axis=1,
+    ).T
+
+    return domain_logfc_df, ref_label, crc_label
+
+
+# ---------------------------------------------------------------------------
+# Expression normalisation helper (used by spatial-prop inference)
+# ---------------------------------------------------------------------------
+
+def total_normalize(X, target_sum: float = 1e4) -> np.ndarray:
+    """Clip, nan-to-num, then normalise each cell to target_sum counts."""
+    X = X.toarray() if hasattr(X, "toarray") else np.asarray(X, dtype=np.float32)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+    X = np.clip(X, 0, None)
+    X = X / np.maximum(X.sum(axis=1, keepdims=True), 1e-6)
+    X = X * target_sum
+    return X
 
 
 # ---------------------------------------------------------------------------
