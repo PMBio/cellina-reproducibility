@@ -21,6 +21,7 @@ Usage (run from notebooks/neighb_perts/):
 import argparse
 import os
 import sys
+sys.path.append('../../scripts')
 
 import numpy as np
 import pandas as pd
