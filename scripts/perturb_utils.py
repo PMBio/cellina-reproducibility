@@ -322,7 +322,7 @@ def _standard_edistance(X: np.ndarray, Y: np.ndarray) -> float:
     X, Y
         2-D arrays of shape (n_cells, n_features).
     """
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu" # "cuda" if torch.cuda.is_available() else "cpu"
     Xt = torch.tensor(X, dtype=torch.float32, device=device)
     Yt = torch.tensor(Y, dtype=torch.float32, device=device)
 
@@ -373,7 +373,7 @@ def compute_cf_logfc(
     -------
     dict with keys:
         pearson_r, pearson_p, spearman_r, spearman_p, precision, mixing_index,
-        edistance, real_logfc, pred_logfc, top_n_mask, gene_names
+        edistance, rmse, real_logfc, pred_logfc, top_n_mask, gene_names
     """
     ref_mean = np.log1p(ref_expr.mean(0))
     crc_mean = np.log1p(obs_expr.mean(0))
@@ -404,6 +404,7 @@ def compute_cf_logfc(
 
     pearson_r, pearson_p = pearsonr(real_eval, pred_eval)
     spearman_r, spearman_p = spearmanr(real_eval, pred_eval)
+    rmse = float(np.sqrt(np.mean((pred_eval - real_eval) ** 2)))
 
     mix_idx = _mixing_index(
         pert_expr, obs_expr,
@@ -422,6 +423,7 @@ def compute_cf_logfc(
         precision=precision,
         mixing_index=mix_idx,
         edistance=edist,
+        rmse=rmse,
         real_logfc=real_logfc,
         pred_logfc=pred_logfc,
         top_n_mask=top_n_mask,
