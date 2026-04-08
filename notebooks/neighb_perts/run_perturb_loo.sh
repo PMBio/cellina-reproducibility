@@ -15,7 +15,7 @@
 #                          (default: uses DEFAULT_GROUPBY from perturb_utils.py)
 #   --top_n_perturb  INT   Genes used to perturb neighbor expression (default: 100)
 #   --top_n          INT   Genes used for metric evaluation (default: 100)
-#   --max_epochs     INT   Training epochs for both models (default: 30)
+#   --max_epochs     INT   Training epochs for both models (default: 100)
 #   --batch_size     INT   Batch size for training/inference (default: 512)
 #   --out_dir        STR   Output directory (default: script directory)
 # =============================================================================
@@ -28,8 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SLIDE_ID=242
 GROUPBY=""          # empty → Python scripts use DEFAULT_GROUPBY from perturb_utils.py
 TOP_N_PERTURB=100
-TOP_N=100
-MAX_EPOCHS=30
+TOP_N=50
+MAX_EPOCHS=100
 BATCH_SIZE=512
 OUT_DIR="$SCRIPT_DIR/results/perturb_benchmark"
 

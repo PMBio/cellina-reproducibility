@@ -27,6 +27,7 @@ import scanpy as sc
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.append('../../scripts')
 from perturb_utils import (
     DEFAULT_GROUPBY,
     compute_cf_logfc,
@@ -72,11 +73,11 @@ def parse_args():
     )
     p.add_argument("--top_n_perturb", type=int, default=100,
                    help="Number of top logFC genes used to perturb neighbor expression.")
-    p.add_argument("--top_n", type=int, default=100,
+    p.add_argument("--top_n", type=int, default=50,
                    help="Number of top logFC genes used for metric evaluation.")
     p.add_argument("--out_dir", type=str, default="results/perturb_benchmark")
     p.add_argument("--min_cells", type=int, default=50)
-    p.add_argument("--max_epochs", type=int, default=30)
+    p.add_argument("--max_epochs", type=int, default=100)
     p.add_argument("--batch_size", type=int, default=512)
     return p.parse_args()
 
@@ -280,6 +281,7 @@ def main():
         else:
             ref_expr = total_normalize(adata_result[mask_ref].X)
             pert_expr = total_normalize(
+                # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
                 adata_result[mask_crc].layers["predicted_perturbed"]
             )
             obs_expr = total_normalize(adata_result[mask_crc].X)
@@ -304,6 +306,7 @@ def main():
                     precision=stats["precision"],
                     mixing_index=stats["mixing_index"],
                     edistance=stats["edistance"],
+                    rmse=stats["rmse"],
                     top_n_perturb=args.top_n_perturb,
                     top_n=args.top_n,
                 )
