@@ -180,15 +180,15 @@ def preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT
 
     try:
         from cellina._spatial_utils import spatial_neighbors
-        spatial_neighbors(adata, bandwidth=np.inf, max_neighbours=n_neighbors, standardize=False)
+        spatial_neighbors(adata, bandwidth=100 / 0.12028, max_neighbours=n_neighbors, standardize=False)
+        #spatial_neighbors(adata, bandwidth=np.inf, max_neighbours=n_neighbors, standardize=False)
     except Exception as e:
         print("Warning: spatial_neighbors failed or cellina not available:", e)
 
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
-    adata.obsm['spatial_x'] = adata.obsp['spatial_connectivities'] @ adata.X / n_neighbors
-    # float32
-    adata.obsm['spatial_x'] = csr_matrix(adata.obsm['spatial_x']).astype(np.float32)
+    from cellina._spatial_utils import compute_spatial_features
+    compute_spatial_features(adata)
     
     adata.X = adata.layers['counts'].copy()
 
