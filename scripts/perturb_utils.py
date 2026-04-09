@@ -101,6 +101,49 @@ def load_crc_slide(
     return adata
 
 
+def load_merfish_brain(
+    data_dir: str = "../../data/MERFISH_mouse_brain",
+    brain_section_label: str = "C57BL6J-2.039",
+    labels_key: str = "cell_type",
+    domains_key: str = "major_brain_region",
+):
+    """Load and preprocess a MERFISH mouse brain section.
+
+    Parameters
+    ----------
+    data_dir
+        Directory containing ``WB_MERFISH_animal2_coronal.h5ad``.
+    brain_section_label
+        Value of ``brain_section_label`` obs column used to subset to one section.
+    labels_key
+        obs column name for cell-type labels.
+    domains_key
+        obs column name for brain-region/domain labels.
+
+    Returns
+    -------
+    Preprocessed AnnData with:
+    - ``obs[labels_key]``: cell-type categories
+    - ``obs[domains_key]``: brain-region categories
+    - ``obsm['spatial']``: spatial coordinates from ``X_spatial_coords``
+    """
+    adata = sc.read(
+        f"{data_dir}/WB_MERFISH_animal2_coronal.h5ad",
+        backup_url="https://datasets.cellxgene.cziscience.com/93c3bb97-ea05-4ee0-a760-a1508cd04612.h5ad",
+    )
+
+    adata = adata[adata.obs["brain_section_label"] == brain_section_label].copy()
+    adata = adata[~adata.obs[labels_key].isna() & ~adata.obs[domains_key].isna()].copy()
+
+    adata.obs[labels_key] = adata.obs[labels_key].astype("category")
+    adata.obs[domains_key] = adata.obs[domains_key].astype("category")
+    adata.obsm["spatial"] = adata.obsm["X_spatial_coords"]
+    
+    adata.layers['counts'] = adata.raw.X.copy()
+
+    return adata
+
+
 # ---------------------------------------------------------------------------
 # Pseudobulk logFC
 # ---------------------------------------------------------------------------

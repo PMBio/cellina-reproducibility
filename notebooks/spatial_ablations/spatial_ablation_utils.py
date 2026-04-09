@@ -42,6 +42,10 @@ def evaluate_model(
     marginal_ll_kwargs=None,
     cf_extra_kwargs=None,
     batch_size_eval_factor=1,
+    ref_domain=None,
+    target_domains=None,
+    domains_key=None,
+    labels_key=None,
 ):
     """Post-training evaluation shared by all ablation scripts.
 
@@ -56,6 +60,16 @@ def evaluate_model(
     batch_size_eval_factor : int, optional
         Multiplier applied to BATCH_SIZE for counterfactual inference.
         Use 1 for cellina-graph (default), 4 for cellina-base (requires less VRAM).
+    ref_domain : str, optional
+        Name of the reference domain in adata.obs[domains_key]. If None, the
+        reference domain is detected by the presence of "REF" in its name (CRC default).
+    target_domains : list of str, optional
+        Names of target domains. If None, target domains are detected by "CRC"/"TVA"
+        in their names (CRC default).
+    domains_key : str, optional
+        obs column for domain labels. Defaults to the global DOMAINS_KEY ("typ").
+    labels_key : str, optional
+        obs column for cell-type labels. Defaults to the global LABELS_KEY ("coarse_type").
     """
     from perturb_utils import compute_cf_logfc
     import scib_metrics
@@ -63,6 +77,9 @@ def evaluate_model(
     marginal_ll_kwargs     = marginal_ll_kwargs     or {}
     cf_extra_kwargs        = cf_extra_kwargs        or {}
     batch_size_eval_factor = batch_size_eval_factor or 1
+
+    _domains_key = domains_key if domains_key is not None else DOMAINS_KEY
+    _labels_key  = labels_key  if labels_key  is not None else LABELS_KEY
 
     eval_batch_size = BATCH_SIZE * batch_size_eval_factor
 
@@ -77,7 +94,7 @@ def evaluate_model(
     rng = np.random.default_rng(seed=42)
     sub_idx = rng.choice(adata.n_obs, size=int(adata.n_obs * 0.25), replace=False)
     ari_nmi = scib_metrics.nmi_ari_cluster_labels_kmeans(
-        labels=adata.obs[DOMAINS_KEY].values[sub_idx],
+        labels=adata.obs[_domains_key].values[sub_idx],
         X=adata.obsm["s"][sub_idx],
     )
     ari = float(ari_nmi["ari"])
@@ -85,23 +102,30 @@ def evaluate_model(
     print(f"  ARI={ari:.4f}  NMI={nmi:.4f}")
 
     # ── Build target domain pools ─────────────────────────────────────────────
-    domains = [d for d in adata.obs[DOMAINS_KEY].astype(str).unique() if d != "nan"]
-    ref_label     = next(d for d in domains if "REF" in d)
-    crc_label     = next(d for d in domains if "CRC" in d)
-    tva_labels    = [d for d in domains if "TVA" in d]
-    target_labels = [crc_label] + tva_labels
+    domains = [d for d in adata.obs[_domains_key].astype(str).unique() if d != "nan"]
+    if ref_domain is not None:
+        ref_label = ref_domain
+    else:
+        ref_label = next(d for d in domains if "REF" in d)
+
+    if target_domains is not None:
+        target_labels = list(target_domains)
+    else:
+        crc_label  = next(d for d in domains if "CRC" in d)
+        tva_labels = [d for d in domains if "TVA" in d]
+        target_labels = [crc_label] + tva_labels
 
     cell_types = [
-        ct for ct in adata.obs[LABELS_KEY].cat.categories
-        if ((adata.obs[DOMAINS_KEY] == ref_label) & (adata.obs[LABELS_KEY] == ct)).any()
+        ct for ct in adata.obs[_labels_key].cat.categories
+        if ((adata.obs[_domains_key] == ref_label) & (adata.obs[_labels_key] == ct)).any()
         and any(
-            ((adata.obs[DOMAINS_KEY] == tl) & (adata.obs[LABELS_KEY] == ct)).any()
+            ((adata.obs[_domains_key] == tl) & (adata.obs[_labels_key] == ct)).any()
             for tl in target_labels
         )
     ]
 
     target_pools = {
-        tl: np.where(adata.obs[DOMAINS_KEY].astype(str) == tl)[0]
+        tl: np.where(adata.obs[_domains_key].astype(str) == tl)[0]
         for tl in target_labels
     }
 
@@ -110,11 +134,14 @@ def evaluate_model(
     rows = []
     for target_label in target_labels:
         target_all_idx = target_pools[target_label]
-        target_short   = next(k for k in ("CRC", "TVA") if k in target_label)
+        if target_domains is None:
+            target_short = next(k for k in ("CRC", "TVA") if k in target_label)
+        else:
+            target_short = target_label
 
         for ct in sorted(cell_types):
-            ref_mask    = (adata.obs[LABELS_KEY] == ct) & (adata.obs[DOMAINS_KEY] == ref_label)
-            target_mask = (adata.obs[LABELS_KEY] == ct) & (adata.obs[DOMAINS_KEY] == target_label)
+            ref_mask    = (adata.obs[_labels_key] == ct) & (adata.obs[_domains_key] == ref_label)
+            target_mask = (adata.obs[_labels_key] == ct) & (adata.obs[_domains_key] == target_label)
 
             if ct == holdout_celltype:
                 target_mask = target_mask & adata.obs["is_holdout"]
