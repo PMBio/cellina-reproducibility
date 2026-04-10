@@ -18,7 +18,9 @@ LIBRARY_SIZE  = 1e4
 DEVICES       = [1]
 
 CF_METRICS  = ["pearson_r", "spearman_r", "precision", "mixing_index", "edistance", "rmse"]
-RUN_METRICS = ["marginal_ll", "ari", "nmi"]
+RUN_METRICS = ["marginal_ll", "ari", "nmi",
+               "ari_s_labels", "nmi_s_labels",
+               "ari_z_domains", "nmi_z_domains"]
 METRICS     = CF_METRICS + RUN_METRICS
 
 # Shared CSV: both ablation scripts append here
@@ -100,6 +102,23 @@ def evaluate_model(
     ari = float(ari_nmi["ari"])
     nmi = float(ari_nmi["nmi"])
     print(f"  ARI={ari:.4f}  NMI={nmi:.4f}")
+
+    ari_nmi_s_labels = scib_metrics.nmi_ari_cluster_labels_kmeans(
+        labels=adata.obs[_labels_key].values[sub_idx],
+        X=adata.obsm["s"][sub_idx],
+    )
+    ari_s_labels = float(ari_nmi_s_labels["ari"])
+    nmi_s_labels = float(ari_nmi_s_labels["nmi"])
+    print(f"  ARI_s_labels={ari_s_labels:.4f}  NMI_s_labels={nmi_s_labels:.4f}")
+
+    adata.obsm["z"] = model.get_latent_representation(latent_key="z", batch_size=eval_batch_size)
+    ari_nmi_z_domains = scib_metrics.nmi_ari_cluster_labels_kmeans(
+        labels=adata.obs[_domains_key].values[sub_idx],
+        X=adata.obsm["z"][sub_idx],
+    )
+    ari_z_domains = float(ari_nmi_z_domains["ari"])
+    nmi_z_domains = float(ari_nmi_z_domains["nmi"])
+    print(f"  ARI_z_domains={ari_z_domains:.4f}  NMI_z_domains={nmi_z_domains:.4f}")
 
     # ── Build target domain pools ─────────────────────────────────────────────
     domains = [d for d in adata.obs[_domains_key].astype(str).unique() if d != "nan"]
@@ -197,6 +216,10 @@ def evaluate_model(
                 marginal_ll=marginal_ll,
                 ari=ari,
                 nmi=nmi,
+                ari_s_labels=ari_s_labels,
+                nmi_s_labels=nmi_s_labels,
+                ari_z_domains=ari_z_domains,
+                nmi_z_domains=nmi_z_domains,
             ))
 
     return rows
