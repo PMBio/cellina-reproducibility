@@ -24,7 +24,6 @@ import argparse
 import numpy as np
 import scanpy as sc
 from scipy.stats import pearsonr, spearmanr
-from counterfactual_analysis import safe_log2_fold_change, get_baseline_delta
 import pandas as pd
 
 DEFAULT_SEED = 0
@@ -36,7 +35,7 @@ sys.path.append('./scripts')
 from configs.adata_config import ADATA_ARGS
 from train_loo import preprocess_adata, split_indices, COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY
 from utils import set_seed
-from counterfactual_analysis import subsample_cells, e_distance, precision_at_k, _normalize_counts, _mixing_index
+from counterfactual_analysis import safe_log2_fold_change, get_baseline_delta, subsample_cells, e_distance, precision_at_k, _normalize_counts, _mixing_index
 
 
 def parse_args():
@@ -70,7 +69,28 @@ def load_model_predicted(path):
     return adata.X, latents
 
 
-def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labels_key=DEFAULT_LABELS_KEY):
+def direction_match(gt_vec, cf_vec, k):
+    """
+    Direction match computed ONLY on intersection of top-k DE genes
+    (as defined in the STRAND paper).
+    """
+    # Top-k sets (by absolute logFC)
+    gt_topk = set(np.argsort(-np.abs(gt_vec))[:k])
+    cf_topk = set(np.argsort(-np.abs(cf_vec))[:k])
+
+    # Intersection
+    intersect = list(gt_topk & cf_topk)
+
+    if len(intersect) == 0:
+        return 0.0  # or np.nan depending on preference
+
+    gt_sign = np.sign(gt_vec[intersect])
+    cf_sign = np.sign(cf_vec[intersect])
+
+    return np.mean(gt_sign == cf_sign)
+
+
+def compute_lfc_metrics(adata, holdout_celltype, use_recon=True, eps=1e-8, labels_key=DEFAULT_LABELS_KEY):
     labels = adata.obs[labels_key].astype(str)
     # masks
     mask_control = (~adata.obs['is_holdout']) & (labels == holdout_celltype)
@@ -108,6 +128,7 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
     pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
     spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
     prec = precision_at_k(gt_vec, cf_vec, k=PRECISION_AT_K, use_abs=True)
+    dir_match = direction_match(gt_vec, cf_vec, k=PRECISION_AT_K)
     """
     # Plot scatterplot of gt vs cf log fold changes - highlight top features in a different color
     import matplotlib.pyplot as plt
@@ -120,7 +141,40 @@ def compute_correlations(adata, holdout_celltype, use_recon=True, eps=1e-8, labe
     plt.scatter(gt_vec[top_features], cf_vec[top_features], color='red')
     plt.show()
     """
-    return float(pear), float(spear), float(prec), top_features
+    return (
+        float(pear), 
+        float(spear), 
+        float(prec), 
+        float(dir_match), 
+        top_features
+    )
+
+
+def compute_rmse(adata, normalize_counts=True, log1p=True, deg=None):
+    """
+    Compute RMSE between psuedobulked observed and counterfactual counts for holdout cells.
+    """
+    mask_target = adata.obs['is_holdout']
+    observed_target = adata.layers["counts"][mask_target.values, :]
+    observed_target = _to_dense(observed_target)
+    pred_target = adata.uns['counterfactual_x']
+
+    # Subset to DE genes if deg provided; otherwise use all genes
+    top_features = deg if deg is not None else np.arange(adata.n_vars)
+    observed_target = observed_target[:, top_features]
+    pred_target = pred_target[:, top_features]
+
+    if normalize_counts:
+        observed_target = _normalize_counts(observed_target, scale=COUNTS_PER_K)
+        pred_target = _normalize_counts(pred_target, scale=COUNTS_PER_K)
+    if log1p:
+        observed_target = np.log1p(observed_target)
+        pred_target = np.log1p(pred_target)
+
+    observed_pseudobulk = observed_target.sum(axis=0)
+    pred_pseudobulk = pred_target.sum(axis=0)
+
+    return np.sqrt(np.mean((observed_pseudobulk - pred_pseudobulk) ** 2))
 
 
 def get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, n_iter= 10, use_cf=True, deg=None, use_latents=False, local=False):
@@ -272,11 +326,17 @@ def main():
         raise FileNotFoundError(f"No counterfactual available for evaluation (tried {cf_path} and CPA fallback).")
 
     # 1. compute correlations
-    pear, spear, precision_at_k, deg = compute_correlations(adata, holdout_ct, use_recon=use_recon, labels_key=labels_key)
+    pear, spear, prec, dir_match, deg = compute_lfc_metrics(adata, 
+                                                                     holdout_ct, 
+                                                                     use_recon=use_recon, 
+                                                                     labels_key=labels_key)
 
     # 2. compute edistance between observed and counterfactual OOD populations - cell level
     edist_cells = None
-    edist_cells = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg)
+    edist_cells = get_edistance(adata, 
+                                n_subsample=EDISTANCE_SUBSAMPLE, 
+                                use_cf=use_cf, 
+                                deg=deg)
 
     # 3. compute edistance between control and OOD populations - latent level
     edist_latents = None
@@ -284,14 +344,27 @@ def main():
     if mc == 'baseline' or (sid == 'crc_120' and mc == 'scgen'):
         print("Skipping latent edistances")
     else:
-        edist_latents = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_latents=True)
+        edist_latents = get_edistance(adata, 
+                                      n_subsample=EDISTANCE_SUBSAMPLE, 
+                                      use_latents=True)
 
     # 4. compute local edistance between observed and counterfactual OOD populations - cell level
     edist_local = None
-    edist_local = get_edistance(adata, n_subsample=EDISTANCE_SUBSAMPLE, use_cf=use_cf, deg=deg, local=True)
+    edist_local = get_edistance(adata, 
+                                n_subsample=EDISTANCE_SUBSAMPLE, 
+                                use_cf=use_cf, 
+                                deg=deg, 
+                                local=True)
 
     # 5. compute mixing index
-    mix_idx = mixing_index(adata, n_clusters=2, n_pcs=50, random_state=DEFAULT_SEED)
+    mix_idx = mixing_index(adata, 
+                           n_clusters=2, 
+                           n_pcs=50, 
+                           random_state=DEFAULT_SEED)
+
+    # 6. compute RMSE
+    rmse = compute_rmse(adata, normalize_counts=False, log1p=False, deg=None)
+    rmse_log1p = compute_rmse(adata, normalize_counts=False, log1p=True, deg=None)
 
     # save results json
     out_dir = '/data2/a330d/datasets/crc/correlations'
@@ -308,7 +381,10 @@ def main():
                    'edistance_latents': edist_latents,
                    'edistance_local': edist_local,
                    'mixing_index': mix_idx,
-                   f'precision@{PRECISION_AT_K}': precision_at_k,
+                   f'precision@{PRECISION_AT_K}': prec,
+                   f'direction_match@{PRECISION_AT_K}': dir_match,
+                   'rmse': rmse,
+                   'rmse_log1p': rmse_log1p
                    }, fh)
 
     print('Saved correlations to', out_path)
