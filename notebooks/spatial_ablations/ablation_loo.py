@@ -97,7 +97,7 @@ def run_one(adata_base, holdout_celltype, link_prediction_weight, spatial_loss_t
         link_prediction_weight=link_prediction_weight,
         marginal_ll_kwargs={"reduce": "mean"},
         cf_extra_kwargs={"n_neighbors_per_seed": 50},
-        batch_size_eval_factor=1,
+        batch_size_eval_factor=0.5,
     )
 
 

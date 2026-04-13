@@ -83,7 +83,7 @@ def evaluate_model(
     _domains_key = domains_key if domains_key is not None else DOMAINS_KEY
     _labels_key  = labels_key  if labels_key  is not None else LABELS_KEY
 
-    eval_batch_size = BATCH_SIZE * batch_size_eval_factor
+    eval_batch_size = int(BATCH_SIZE * batch_size_eval_factor)
 
     # ── Per-run scalars ───────────────────────────────────────────────────────
     print(f"  Evaluating marginal log-likelihood on test set...")
@@ -186,7 +186,7 @@ def evaluate_model(
             pert_expr = model.get_counterfactual_expression(
                 indices=ref_idx,
                 neighbour_indices=target_all_idx,
-                batch_size=BATCH_SIZE * batch_size_eval_factor,
+                batch_size=eval_batch_size,
                 library_size=LIBRARY_SIZE,
                 **cf_extra_kwargs,
             )
