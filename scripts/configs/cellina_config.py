@@ -18,8 +18,8 @@ TRAIN_ARGS = {
     "batch_size": 2048, #4096,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
-    "early_stopping_patience": 25,
-    "early_stopping_monitor": "validation_loss",
+    "early_stopping_patience": 10,
+    "early_stopping_monitor": "vae_loss_validation",
     "enable_checkpointing": True,
     "devices": [0],
 }

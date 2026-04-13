@@ -187,7 +187,6 @@ def preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT
     try:
         from cellina._spatial_utils import spatial_neighbors
         spatial_neighbors(adata, bandwidth=100 / 0.12028, max_neighbours=n_neighbors, standardize=False)
-        #spatial_neighbors(adata, bandwidth=np.inf, max_neighbours=n_neighbors, standardize=False)
     except Exception as e:
         print("Warning: spatial_neighbors failed or cellina not available:", e)
 
@@ -429,9 +428,6 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     out_dir = os.path.join(parent_of_input, input_basename, holdout_celltype)
     os.makedirs(out_dir, exist_ok=True)
 
-    # for space usage reasons, subset to only relevant (OOD) cell type
-    adata = adata[adata.obs[labels_key] == holdout_celltype] if model_class.lower() != 'concert' else adata
-
     # full reconstruction
     try:
         recon_all = None
@@ -453,8 +449,15 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
             denoised = denoised / (denoised.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
             recon_all = _to_array(denoised)
         else:
-            recon_all = _reconstruct_model_output(model, adata, model_class, return_normalized=return_normalized, batch_size=batch_size)
-            latents = _get_latents(model, adata, model_class, batch_size)
+            recon_all = _reconstruct_model_output(model, 
+                                                  adata[adata.obs[labels_key] == holdout_celltype], 
+                                                  model_class, 
+                                                  return_normalized=return_normalized, 
+                                                  batch_size=batch_size)
+            latents = _get_latents(model, 
+                                   adata[adata.obs[labels_key] == holdout_celltype], 
+                                   model_class, 
+                                   batch_size)
     except Exception as e:
         print('Reconstruction failed:', e)
         recon_all = None
@@ -463,17 +466,28 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
     out_recon_path = None
     if recon_all is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
-        adata_with_obs = adata if model_class!='concert' else adata[extras['train_idx']].copy()        
-        save_recon_adata(adata_with_obs, recon_all, out_recon_path, latents=latents)
+        if model_class.lower() == 'concert':
+            adata_with_obs = adata[extras['train_idx']].copy()
+        else:
+            adata_with_obs = adata[adata.obs[labels_key] == holdout_celltype].copy()
+        save_recon_adata(adata_with_obs, 
+                         recon_all, 
+                         out_recon_path, 
+                         latents=latents)
         print('Saved recon to', out_recon_path)
 
     # Compute counterfactuals
+    # for space usage reasons, subset to only relevant (OOD) cell type
+    # cellina-graph needs full adata to sample neighbors correctly
+    if model_class.lower() not in ['concert', 'cellina_graph']:
+        adata = adata[adata.obs[labels_key] == holdout_celltype]
     out_cf_path = None
     if do_cf:
         is_tumor_region = adata.obs[domains_key].astype(str).str.contains('CRC', regex=True)
-        mask_target = is_tumor_region & (adata.obs[labels_key].astype(str) == holdout_celltype)
+        is_holdout_ct = adata.obs[labels_key].astype(str) == holdout_celltype
+        mask_target = is_tumor_region & is_holdout_ct
         idx_target = np.where(mask_target.values)[0]
-        mask_control = (~adata.obs['is_holdout']) & (adata.obs[labels_key] == holdout_celltype)
+        mask_control = ~is_tumor_region & is_holdout_ct
         idx_control = np.where(mask_control.values)[0]
 
         if len(idx_control) == 0 or len(idx_target) == 0:
@@ -518,14 +532,20 @@ def run_inference(model, adata, adata_path, model_class, model_name, holdout_cel
         if 'cellina' in model_class.lower():
             args_gex = {
                 "indices": idx_control,
-                "neighbour_indices": idx_target,
                 "batch_size": batch_size,
                 "seed": 0,
             }
             if model_class.lower() == 'cellina_graph':
                 args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
+                # "neighbour_indices" are indices of the neighbors of idx_target cells
+                conn = adata.obsp["spatial_connectivities"]
+                sub_conn = conn[idx_target]                # rows for target cells
+                neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
+                neighbor_indices = np.unique(neighbor_indices)
+                args_gex["neighbour_indices"] = neighbor_indices
             else:
                 args_gex["adata"] = adata
+                args_gex["neighbour_indices"] = idx_target
             cf_counts = model.get_counterfactual_expression(**args_gex)
             args_latents = args_gex.copy() # Default gets 'shifted' latents, can set 'z' or 's' here
             cf_latents = model.get_counterfactual_latents(**args_latents)
