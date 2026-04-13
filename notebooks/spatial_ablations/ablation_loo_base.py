@@ -21,6 +21,11 @@ from spatial_ablation_utils import (
     _normalize_total, evaluate_model, generate_pdf,
 )
 
+import scvi
+from utils import set_seed
+scvi.settings.seed = 0
+set_seed(0)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 HOLDOUT_CELLTYPES = ["Epithelial", "T_cell", "Myeloid"]  # dry-run: ["Epithelial"]
 LINK_PREDICTION_WEIGHTS =  [0, 1e-9, 1e-7, 1e-5, 1e-3, 0.1, 0.01, 1., 10, 100]  # dry-run: [0, 0.1]

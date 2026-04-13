@@ -21,6 +21,12 @@ from spatial_ablation_utils import (
     evaluate_model, generate_pdf,
 )
 
+import scvi
+from utils import set_seed
+scvi.settings.seed = 0
+set_seed(0)
+
+
 # ── Config ────────────────────────────────────────────────────────────────────
 LABELS_KEY        = "cell_type"
 DOMAINS_KEY       = "major_brain_region"

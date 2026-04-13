@@ -11,7 +11,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 SLIDE_ID      = 242
 LABELS_KEY    = "coarse_type"
 DOMAINS_KEY   = "typ"
-TOP_N         = 50
+TOP_N         = 100
 MIN_CELLS     = 50
 BATCH_SIZE    = 512
 LIBRARY_SIZE  = 1e4

@@ -22,6 +22,13 @@ from spatial_ablation_utils import (
     _normalize_total, evaluate_model, generate_pdf,
 )
 
+import scvi
+scvi.settings.seed = 0
+
+from utils import set_seed
+set_seed(0)
+
+
 # ── Config ───────────────────────────────────────────────────────────────────
 HOLDOUT_CELLTYPES       = ["Epithelial", "T_cell", "Myeloid"]
 SPATIAL_LOSS_TYPES      = ["supcon", "domain_clf"]
