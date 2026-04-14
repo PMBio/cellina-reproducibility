@@ -1,6 +1,7 @@
 """
 Shared constants and helpers for LOO ablation scripts (ablation_loo.py / ablation_loo_base.py).
 """
+import os as _os
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -24,7 +25,8 @@ RUN_METRICS = ["marginal_ll", "ari", "nmi",
 METRICS     = CF_METRICS + RUN_METRICS
 
 # Shared CSV: both ablation scripts append here
-RESULTS_CSV = "results/ablation_loo.csv"
+# Use an absolute path anchored to this file so the CSV is found regardless of CWD
+RESULTS_CSV = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "results", "ablation_loo.csv")
 
 SLT_COLORS  = {"supcon": "#4C72B0", "domain_clf": "#e05c5c", "cellina-base": "#2ca02c"}
 SLT_MARKERS = {"supcon": "o", "domain_clf": "s", "cellina-base": "^"}

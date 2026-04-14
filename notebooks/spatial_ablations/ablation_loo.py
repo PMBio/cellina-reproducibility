@@ -109,8 +109,7 @@ def run_one(adata_base, holdout_celltype, link_prediction_weight, spatial_loss_t
 
 
 def main():
-    os.makedirs("results", exist_ok=True)
-    os.makedirs(os.path.dirname(os.path.abspath(RESULTS_CSV)), exist_ok=True)
+    os.makedirs(os.path.dirname(RESULTS_CSV), exist_ok=True)
 
     print("Loading data and computing spatial graph...")
     adata_base = load_crc_slide(SLIDE_ID, labels_key=LABELS_KEY, domains_key=DOMAINS_KEY)
