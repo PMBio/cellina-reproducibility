@@ -316,6 +316,50 @@ def _to_dense(mat):
     return np.asarray(mat)
 
 
+def compute_correlations(control, target, cf, deg=200, eps=1e-6):
+    """
+    Compute Pearson and Spearman correlations between observed and counterfactual LFCs.
+
+    Parameters
+    ----------
+    control : np.ndarray (n_control_cells, n_genes), raw counts
+    target  : np.ndarray (n_target_cells, n_genes), raw counts
+    cf      : np.ndarray (n_control_cells, n_genes), counterfactual normalized expression
+    deg     : int, number of top DEGs (by |observed LFC|) to evaluate on
+    eps     : float, pseudocount for log2 fold change
+
+    Returns
+    -------
+    pearson, spearman : float
+    """
+    control = np.asarray(control, dtype=float)
+    target  = np.asarray(target,  dtype=float)
+    cf      = np.asarray(cf,      dtype=float)
+
+    # Normalize raw counts to library size 1e4
+    control_norm = control / (control.sum(axis=1, keepdims=True) + eps) * 1e4
+    target_norm  = target  / (target.sum(axis=1,  keepdims=True) + eps) * 1e4
+
+    mean_control = control_norm.mean(axis=0)
+    mean_target  = target_norm.mean(axis=0)
+    mean_cf      = cf.mean(axis=0)
+
+    gt_vec = safe_log2_fold_change(mean_target, mean_control, eps=eps)
+    cf_vec = safe_log2_fold_change(mean_cf,     mean_control, eps=eps)
+
+    top_features = np.argsort(-np.abs(gt_vec))[:deg]
+    gt_top = gt_vec[top_features]
+    cf_top = cf_vec[top_features]
+
+    valid = np.isfinite(gt_top) & np.isfinite(cf_top)
+    if valid.sum() < 2:
+        return np.nan, np.nan
+
+    pear,  _ = pearsonr( gt_top[valid], cf_top[valid])
+    spear, _ = spearmanr(gt_top[valid], cf_top[valid])
+    return float(pear), float(spear)
+
+
 def safe_log2_fold_change(a, b, eps=1e-6):
     """
     Compute log2((a + eps) / (b + eps)) elementwise.

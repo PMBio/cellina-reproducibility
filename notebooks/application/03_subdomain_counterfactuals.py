@@ -28,19 +28,24 @@ import glob
 import os
 import sys
 
-sys.path.append('../../scripts')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
 
+import hotspot
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from scvi.train._callbacks import SaveCheckpoint, EarlyStopping
 from cellina import CellinaModel
+from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
 from counterfactual_analysis import compute_correlations, safe_log2_fold_change
 from utils import set_seed
+from perturb_utils import load_crc_slide
 
 plt.rcParams['font.family'] = 'monospace'
-plt.rcParams['font.size'] = 16
+plt.rcParams['font.size'] = 20
 plt.rcParams['figure.dpi'] = 100
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -54,6 +59,133 @@ CELLTYPES = ['Endothelial', 'Epithelial', 'Fibroblast', 'Myeloid', 'T_cell']
 DEG = 200
 
 
+# ── Spatial preprocessing ────────────────────────────────────────────────────
+
+def preprocess_for_cellina(adata, n_neighbors=200):
+    """Add spatial neighbourhood features required by CellinaModel.
+
+    load_crc_slide already normalises + log-transforms + selects HVGs.
+    This adds the two missing steps: spatial KNN graph and spatial_x features.
+    """
+    spatial_neighbors(adata, bandwidth=100 / 0.12028,
+                      max_neighbours=n_neighbors, standardize=False)
+    compute_spatial_features(adata)          # writes adata.obsm['spatial_x']
+    adata.X = adata.layers['counts'].copy()  # reset X to raw counts for model
+
+
+# ── Model training / loading ──────────────────────────────────────────────────
+
+def train_or_load_model(adata, slide_id):
+    """Load an existing checkpoint or train a new CellinaModel for the slide."""
+    model_base_path = f"{MODEL_BASE_DIR}/{slide_id}"
+
+    if os.path.isdir(model_base_path):
+        checkpoints = [f for f in os.listdir(model_base_path) if not f.startswith('.')]
+        if checkpoints:
+            model = CellinaModel.load(
+                f"{model_base_path}/{checkpoints[0]}", adata=adata
+            )
+            print("Loaded existing model checkpoint")
+            return model
+
+    print("No checkpoint found — training model from scratch ...")
+
+    if 'sid' not in adata.obs:
+        adata.obs['sid'] = slide_id
+
+    n = adata.n_obs
+    test_idx = np.random.choice(n, int(n * 0.1), replace=False)
+    trainval_idx = np.setdiff1d(np.arange(n), test_idx)
+    train_idx, val_idx = train_test_split(
+        trainval_idx, test_size=0.1, random_state=0, shuffle=True
+    )
+
+    CellinaModel.setup_anndata(
+        adata,
+        batch_key='sid',
+        labels_key=LABELS_KEY,
+        domains_key=DOMAINS_KEY,
+        spatial_obsm_key='spatial_x',
+        layer='counts',
+    )
+
+    os.makedirs(model_base_path, exist_ok=True)
+    model = CellinaModel(
+        adata=adata,
+        n_latent=64,
+        n_layers=3,
+        use_observed_lib_size=True,
+        condition_on_intrinsic=False,
+        gene_likelihood='nb',
+        classifier_lambda=1.,
+        discriminator_lambda=1.,
+    )
+    model.train(
+        max_epochs=100,
+        batch_size=4096,
+        check_val_every_n_epoch=1,
+        early_stopping=True,
+        datasplitter_kwargs={'external_indexing': [train_idx, val_idx, test_idx]},
+        enable_checkpointing=True,
+        callbacks=[
+            SaveCheckpoint(
+                monitor='vae_loss_validation',
+                dirpath=model_base_path,
+                load_best_on_end=True,
+            ),
+            EarlyStopping(
+                monitor='vae_loss_validation',
+                patience=5,
+                mode='min',
+            ),
+        ],
+        plan_kwargs={'lr': 1e-3, 'normalize_losses': True},
+    )
+    print("Model trained and saved")
+    return model
+
+
+# ── Microenvironment labeling ─────────────────────────────────────────────────
+
+def compute_microenvironments(adata, model, domains_key, n_neighbors=30,
+                              top_k=1200, fdr_threshold=0.05,
+                              min_gene_threshold=100, jobs=8):
+    """Run Hotspot on the CRC sub-population to assign microenvironment labels."""
+    adata.obsm['cellina_spatial'] = model.get_latent_representation(
+        adata=adata, latent_key='s', batch_size=4096
+    )
+
+    adata_crc = adata[adata.obs[domains_key].str.contains('CRC', regex=True)].copy()
+
+    if 'nCount_RNA' not in adata_crc.obs:
+        adata_crc.obs['nCount_RNA'] = np.asarray(
+            adata_crc.layers['counts'].sum(axis=1)
+        ).ravel()
+
+    hs = hotspot.Hotspot(
+        adata_crc,
+        layer_key='counts',
+        model='danb',
+        latent_obsm_key='cellina_spatial',
+        umi_counts_obs_key='nCount_RNA',
+    )
+    hs.create_knn_graph(weighted_graph=False, n_neighbors=n_neighbors)
+
+    hs_results = hs.compute_autocorrelations(jobs=jobs)
+    hs_genes = hs_results.loc[hs_results.FDR < fdr_threshold].head(top_k).index
+
+    hs.compute_local_correlations(hs_genes, jobs=jobs)
+    hs.create_modules(min_gene_threshold=min_gene_threshold,
+                      core_only=True, fdr_threshold=fdr_threshold)
+    module_scores = hs.calculate_module_scores()
+
+    top_modules = module_scores.idxmax(axis=1)
+    adata_crc.obs['microenvironment'] = top_modules.apply(lambda x: f"CRC{x}")
+
+    # Propagate back to full adata (non-CRC cells get NaN)
+    adata.obs['microenvironment'] = adata_crc.obs['microenvironment'].reindex(adata.obs_names)
+
+
 # ── Per-slide function ────────────────────────────────────────────────────────
 
 def per_slide(slide_id):
@@ -63,19 +195,25 @@ def per_slide(slide_id):
 
     set_seed(0)
 
-    # ── Load adata (saved by 01_data_prep.ipynb) ─────────────────────────────
-    h5ad_path = f"{slide_id}/output/adata_with_microenv.h5ad"
-    adata = sc.read_h5ad(h5ad_path)
+    # ── Load adata ────────────────────────────────────────────────────────────
+    numeric_id = int(slide_id.split('_')[-1])
+    adata = load_crc_slide(
+        slide_id=numeric_id,
+        data_dir='../../data/crc_wt_cosmx',
+    )
+    # Derive typ_clean (REF / TVA / CRC) from the raw typ column
+    adata.obs[DOMAINS_KEY] = adata.obs['typ'].str.extract(r'(REF|TVA|CRC)', expand=False)
     print(f"Loaded adata: {adata}")
 
-    # ── Load model ────────────────────────────────────────────────────────────
-    model_base_path = f"{MODEL_BASE_DIR}/{slide_id}"
-    checkpoint_name = os.listdir(model_base_path)[0]
-    model = CellinaModel.load(
-        f"{model_base_path}/{checkpoint_name}",
-        adata=adata,
-    )
-    print("Loaded model")
+    # ── Add spatial features + reset X to counts ──────────────────────────────
+    preprocess_for_cellina(adata)
+
+    # ── Train or load model ───────────────────────────────────────────────────
+    model = train_or_load_model(adata, slide_id)
+
+    # ── Compute microenvironment labels via Hotspot ───────────────────────────
+    compute_microenvironments(adata, model, DOMAINS_KEY)
+    print(f"Microenvironments: {adata.obs['microenvironment'].value_counts().to_dict()}")
 
     # ── Build results dict and derive microenvironments ───────────────────────
     results = {ct: adata[adata.obs[LABELS_KEY] == ct] for ct in CELLTYPES}
@@ -240,7 +378,7 @@ def plot_dumbbell_single(summary_df, slide_id):
 
 
 def plot_aggregate_dumbbell(results_path=RESULTS_PATH, fig_save_path=FIG_SAVE_PATH):
-    """Aggregate multi-slide pointplot (cells 69-71)."""
+    """Aggregate multi-slide pointplot"""
     all_files = glob.glob(f"{results_path}/microenvironments_*.csv")
     if not all_files:
         print(f"No result CSVs found in {results_path}")
