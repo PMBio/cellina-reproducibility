@@ -92,6 +92,7 @@ def plot_custom_umap(
     use_rep=None,
     rep_dims=None,  # <-- NEW: list of indices to use from use_rep
     clean=False,
+    random_state=42,
     **kwargs,
 ):
     """
@@ -111,14 +112,15 @@ def plot_custom_umap(
         If provided, restrict to these component indices of use_rep.
     clean : bool
         Whether to remove axis labels, ticks, and spines.
+    random_state : int
+        Seed for reproducible subsampling.
     **kwargs : dict
         Additional args passed to `sc.pl.umap`.
     """
     # Subsample
     if subsample is not None and 0 < subsample < 1:
-        idx = np.random.choice(
-            adata.n_obs, size=int(adata.n_obs * subsample), replace=False
-        )
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(adata.n_obs, size=int(adata.n_obs * subsample), replace=False)
         adata_plot = adata[idx].copy()
     else:
         adata_plot = adata
