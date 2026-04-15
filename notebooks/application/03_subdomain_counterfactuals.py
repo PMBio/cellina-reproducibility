@@ -431,9 +431,10 @@ def plot_aggregate_dumbbell(results_path=RESULTS_PATH, fig_save_path=FIG_SAVE_PA
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    """Submit all: python notebooks/application/03_subdomain_counterfactuals.py --slides 242 232 231 210 221 120"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        '--slides', nargs='+', default=['crc_210'],
+        '--slides', nargs='+', default=['crc_210'], # all slides: [‘242’, ‘232’, ‘231’, ‘210’, ‘221’, ‘120’]
         help='Slide IDs to process (default: crc_210)',
     )
     args = parser.parse_args()
