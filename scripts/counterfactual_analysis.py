@@ -400,8 +400,8 @@ def precision_at_k(vec_true, vec_pred, k=20, use_abs=True):
     return len(set_true & set_pred) / len(set_true)
 
 
-def _normalize_counts(x, eps=1e-8):
-            return x / (x.sum(axis=1, keepdims=True) + eps) * 1e4
+def _normalize_counts(x, eps=1e-8, scale=1e4):
+        return x / (x.sum(axis=1, keepdims=True) + eps) * scale
 
 
 def get_de_correlations(

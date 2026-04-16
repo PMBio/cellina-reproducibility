@@ -41,6 +41,8 @@ MODEL_ROOT = "/data2/a330d/data/ood/trained"
 
 # local utils
 from counterfactual_analysis import make_counterfactual_adata
+from counterfactual_analysis import _normalize_counts
+
 from utils import set_seed
 
 # Import configs
@@ -73,29 +75,34 @@ def _to_array(x):
     return np.asarray(x)
 
 
-def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=False, batch_size=4096):
+def _reconstruct_model_output(model, adata_obj, model_class, return_normalized=False, batch_size=512):
     """Model-agnostic adapter to obtain reconstructions for adata_obj as numpy array.
     - For scvi/cellina: use get_normalized_expression if available
     - For CPA-like models: call predict() which may write into adata_obj.obsm['CPA_pred'] or return array
     """
     model_class = model_class.lower()
-    if model_class in ("cpa",):
+    if model_class == "cpa":
         out = None
         # many CPA implementations write predictions into adata.obsm['CPA_pred']
         out = model.predict(adata_obj, batch_size=batch_size)
         if "CPA_pred" in adata_obj.obsm:
             X = _to_array(adata_obj.obsm["CPA_pred"])  # likely raw counts
-            if return_normalized:
-                X = X / (X.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
+            X = _normalize_counts(X, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else X
             return X
         if out is not None:
             return _to_array(out)
         raise RuntimeError("CPA model produced no output and did not populate adata.obsm['CPA_pred']")
 
     # other models (cellina or generic models exposing get_normalized_expression)
-    if hasattr(model, "get_normalized_expression"):
+    if "cellina" in model_class:
         library_size = COUNTS_PER_K if return_normalized else "latent"
         out = model.get_normalized_expression(adata_obj, library_size=library_size, batch_size=batch_size)
+        return _to_array(out)
+    if model_class == "scgen":
+        out = model.get_decoded_expression(adata_obj, batch_size=batch_size)
+        out = out.clip(min=1e-8)
+        out = np.clip(np.expm1(out), 0, None)
+        out = _normalize_counts(out, eps=1e-8, scale=COUNTS_PER_K) if return_normalized else out
         return _to_array(out)
 
     raise RuntimeError("Model does not expose a known reconstruction API (get_normalized_expression or predict)")
