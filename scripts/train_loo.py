@@ -192,8 +192,11 @@ def preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT
 
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
-    from cellina._spatial_utils import compute_spatial_features
-    compute_spatial_features(adata)
+    try:
+        from cellina._spatial_utils import compute_spatial_features
+        compute_spatial_features(adata)
+    except Exception as e:
+        print("Warning: compute_spatial_features failed or cellina not available:", e)
     
     adata.X = adata.layers['counts'].copy()
 
