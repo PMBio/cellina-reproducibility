@@ -6,8 +6,8 @@ Application analysis for the CRC spatial transcriptomics dataset using Cellina.
 |------|------|------|
 | `01_data_prep.ipynb` | Notebook | Data prep, model training, Hotspot module detection, microenvironment labelling, global counterfactuals — saves outputs for downstream steps |
 | `02_pathway_analysis.ipynb` | Notebook | Loads outputs from 01; pathway enrichment (PROGENy + Hallmark) on Hotspot modules; pathway-guided neighbourhood perturbations (`make_neighbor_perturbation` / `get_perturbed_expression`) for a single slide |
-| `03_subdomain_counterfactuals.py` | Script | Batch: loops over slides, runs subdomain edge-swapping counterfactuals per cell type × microenvironment, saves per-slide correlation CSVs, produces dumbbell plots |
-| `04_fibroblast_IGF2_plots.ipynb` | Notebook | Standalone: trains a separate OOD model (CRC fibroblasts held out), generates counterfactual IGF2 spatial expression maps |
+| `03_subdomain_counterfactuals.py` | Script | Loops over slides, runs subdomain edge-swapping counterfactuals per cell type × microenvironment, saves per-slide correlation CSVs, produces dumbbell plots |
+| `04_fibroblast_IGF2_plots.ipynb` | Notebook | Trains a separate OOD model (CRC fibroblasts held out), generates counterfactual IGF2 spatial expression maps |
 
 ## Workflow
 
