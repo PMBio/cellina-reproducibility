@@ -27,34 +27,37 @@ PY = sys.executable
 
 # Populate these lists manually
 PATHS = [
-    # Example: "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    # Example: #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
+
 HOLDOUTS = [
     # Example: "Epithelial",
-    "Fibroblast",
     "Endothelial",
+    "Epithelial",
+    "Fibroblast",
     "Myeloid",
     "T_cell",
-    "Epithelial",
     #"B_cell"
 ]
+# TODO: Run eval for everything again because of correlation norm change
 MODELS = [
-    # Example entries: {"class": "cellina", "name": "cellina_v1"}
-    {"class": "baseline", "name": "baseline"},
+    # Example entries: {"class": "cellina", "name": "cellina"}
+    {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
     #{"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
-    #{"class": "cpa", "name": "cpa"},
-    #{"class": "cellina_graph", "name": "cellina-graph"}
+    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
     #{"class": "concert", "name": "concert"},
-    #{"class": "cellina", "name": "cellina-ablated"},
+    {"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
+    #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
+    #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--use_cf"},
+    {"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
 ]
 
 
@@ -221,6 +224,7 @@ def main():
 
     # run in parallel batches
     concurrency = max(1, int(args.concurrency))
+    print(f"Starting {len(all_cmds)} jobs with concurrency={concurrency}")
     failures = run_batch(all_cmds, concurrency)
 
     if failures:

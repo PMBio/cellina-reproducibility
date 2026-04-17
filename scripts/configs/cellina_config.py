@@ -9,7 +9,10 @@ MODEL_ARGS = {
     "classifier_lambda": 1.0,
     "discriminator_lambda": 1.0,
     "gene_likelihood": "nb",
+<<<<<<< HEAD
     'n_layers': 2,
+=======
+>>>>>>> 41-major-loo-run
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
@@ -19,7 +22,11 @@ TRAIN_ARGS = {
     "batch_size": 2048, #4096,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
+<<<<<<< HEAD
     "early_stopping_patience": 5,
+=======
+    "early_stopping_patience": 10,
+>>>>>>> 41-major-loo-run
     "early_stopping_monitor": "vae_loss_validation",
     "enable_checkpointing": True,
     "devices": [0],

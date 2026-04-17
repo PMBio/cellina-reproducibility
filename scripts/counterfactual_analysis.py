@@ -8,6 +8,7 @@ from scipy.spatial.distance import cdist, pdist
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import pearsonr, spearmanr
+from sklearn.cluster import KMeans
 
 
 def make_counterfactual_adata(
@@ -87,6 +88,156 @@ def prepare_matrix(M, n_pca=50, standardize=False):
     return M
 
 
+def _mixing_index(
+    X_pred: np.ndarray,
+    X_true: np.ndarray,
+    n_clusters: int = 2,
+    n_pcs: int = 50,
+    random_state: int = 0,
+) -> float:
+    """
+    Mixing index: fraction of predicted cells correctly co-clustered with true cells.
+
+    Reduces dimensionality with PCA, clusters with KMeans, then computes how
+    many predicted cells land in clusters that contain the expected proportion of
+    true cells.  A value of 1 indicates perfect mixing; 0 indicates no mixing.
+
+    Parameters
+    ----------
+    X_pred
+        Expression matrix for counterfactual (predicted) cells, shape (n_pred, n_genes).
+    X_true
+        Expression matrix for real target cells, shape (n_true, n_genes).
+    n_clusters
+        Number of KMeans clusters.
+    n_pcs
+        Number of PCA components before clustering.
+    random_state
+        Random seed.
+    """
+    n_pred = X_pred.shape[0]
+    n_true = X_true.shape[0]
+    expected_proportion = n_pred / n_true
+
+    # Joint PCA on stacked data
+    X_combined = np.vstack([X_pred, X_true])
+    n_pcs_eff = min(n_pcs, X_combined.shape[1], X_combined.shape[0] - 1)
+    pca = PCA(n_components=n_pcs_eff, random_state=random_state)
+    X_reduced = pca.fit_transform(X_combined)
+
+    batch_labels = np.array(["pred"] * n_pred + ["true"] * n_true)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init="auto")
+    cluster_labels = kmeans.fit_predict(X_reduced)
+
+    n_correctly_mixed = 0
+    for cluster_id in range(n_clusters):
+        in_cluster = cluster_labels == cluster_id
+        n_pred_in = (batch_labels[in_cluster] == "pred").sum()
+        n_true_in = (batch_labels[in_cluster] == "true").sum()
+        n_correctly_mixed += min(n_pred_in, n_true_in * expected_proportion)
+
+    return n_correctly_mixed / n_pred
+
+
+def _knn_masked_mean(kernel_matrix: np.ndarray, k: int, exclude_self: bool) -> np.ndarray:
+    """
+    Mean of a kernel matrix restricted to each row's top-k neighbours.
+
+    Parameters
+    ----------
+    kernel_matrix
+        Square (n, n) similarity matrix (higher = more similar).
+    k
+        Number of neighbours to retain per row.
+    exclude_self
+        If True, mask out the diagonal before selecting top-k.
+    """
+    n = kernel_matrix.shape[0]
+    mask = np.zeros_like(kernel_matrix, dtype=bool)
+
+    for i in range(n):
+        row = kernel_matrix[i].copy()
+
+        if exclude_self:
+            row[i] = -np.inf
+
+        k_eff = min(k, kernel_matrix.shape[1] - int(exclude_self))
+
+        # argpartition is faster than full sort for top-k
+        top_idx = np.argpartition(-row, k_eff - 1)[:k_eff]
+
+        mask[i, top_idx] = True
+
+    return kernel_matrix[mask].mean()
+
+
+def _pairwise_distances(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """
+    Efficient Euclidean distance matrix using broadcasting.
+    """
+    return np.linalg.norm(A[:, None, :] - B[None, :, :], axis=-1)
+
+
+def _standard_edistance(X: np.ndarray, Y: np.ndarray) -> float:
+    """
+    Standard energy distance between two sample sets.
+
+    E(X, Y) = 2 * E[||x - y||] - E[||x - x'||] - E[||y - y'||]
+
+    A value of 0 means the distributions are identical; larger values indicate
+    greater distributional discrepancy.
+
+    Parameters
+    ----------
+    X, Y
+        2-D arrays of shape (n_cells, n_features).
+    """
+    D_xy = _pairwise_distances(X, Y)
+    D_xx = _pairwise_distances(X, X)
+    D_yy = _pairwise_distances(Y, Y)
+
+    mean_dist_xy = D_xy.mean()
+    mean_dist_xx = D_xx.mean()
+    mean_dist_yy = D_yy.mean()
+
+    return float(2 * mean_dist_xy - mean_dist_xx - mean_dist_yy)
+
+
+def _local_edistance(X: np.ndarray, Y: np.ndarray, k: int = 10) -> float:
+    """
+    Local energy distance restricted to each cell's k nearest neighbours.
+
+    Uses negated Euclidean distances as a similarity kernel so that
+    higher kernel values correspond to closer cells, making kNN selection
+    consistent with _knn_masked_mean.
+
+    Parameters
+    ----------
+    X, Y
+        2-D arrays of shape (n_cells, n_features).
+    k
+        Number of nearest neighbours to consider per cell.
+    """
+    # Compute distances
+    D_xx = _pairwise_distances(X, X)
+    D_yy = _pairwise_distances(Y, Y)
+    D_xy = _pairwise_distances(X, Y)
+
+    # Convert to similarity (negated distance)
+    K_xx = -D_xx
+    K_yy = -D_yy
+    K_xy = -D_xy
+    K_yx = -D_xy.T
+
+    mean_xx = _knn_masked_mean(K_xx, k, exclude_self=True)
+    mean_yy = _knn_masked_mean(K_yy, k, exclude_self=True)
+    mean_xy = _knn_masked_mean(K_xy, k, exclude_self=False)
+    mean_yx = _knn_masked_mean(K_yx, k, exclude_self=False)
+
+    return float(mean_xx + mean_yy - mean_xy - mean_yx)
+
+
 def subsample_cells(X, n=200, seed=None):
     """Randomly subsample rows of a matrix."""
     rng = np.random.default_rng(seed)
@@ -96,16 +247,13 @@ def subsample_cells(X, n=200, seed=None):
     return X
 
 
-def e_distance(X, Y):
-    """Energy distance using pdist (no self-distances) for within-group terms."""
-    X = np.asarray(X)
-    Y = np.asarray(Y)
-    # cross distances
-    d_xy = cdist(X, Y, metric="euclidean")
-    # within-group distances excluding self-pairs
-    d_xx = pdist(X, metric="euclidean")
-    d_yy = pdist(Y, metric="euclidean")
-    return 2 * np.mean(d_xy) - np.mean(d_xx) - np.mean(d_yy)
+def e_distance(X, Y, local=False, k=10):
+    edist = None
+    if local:
+        edist = _local_edistance(X, Y, k=k)
+    else:
+        edist = _standard_edistance(X, Y)
+    return edist
 
 
 def permutation_test(X, Y, n_perms=1000, seed=None):
@@ -564,9 +712,7 @@ def get_baseline_delta(
     use_celltypes,
     labels_col,
     library_size="latent",
-    normalize_counts=False,
     use_recon=False,
-    eps=1e-8,
 ):
     # Take log fold change delta of in-sample control and CRC populations
     adata_control = adata[
@@ -583,13 +729,12 @@ def get_baseline_delta(
     else:
         x = adata_control.layers["counts"].toarray()
         y = adata_target.layers["counts"].toarray()
-        if normalize_counts:
-            # normalize to proportions
-            x = _normalize_counts(x, eps=eps)
-            y = _normalize_counts(y, eps=eps)
+        #x = _normalize_counts(x)
+        #y = _normalize_counts(y)
 
     # Compute shift vector from epithelial control to holdout
-    delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
+    #delta = np.log2((y.mean(axis=0) + eps) / (x.mean(axis=0) + eps))
+    delta = (np.mean(np.log1p(y), axis=0) - np.mean(np.log1p(x), axis=0))
 
     return delta
 
