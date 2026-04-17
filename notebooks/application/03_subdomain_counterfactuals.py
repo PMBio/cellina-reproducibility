@@ -44,7 +44,7 @@ from counterfactual_analysis import compute_correlations, safe_log2_fold_change
 from utils import set_seed
 from perturb_utils import load_crc_slide
 
-plt.rcParams['font.family'] = 'monospace'
+plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.size'] = 20
 plt.rcParams['figure.dpi'] = 100
 
@@ -335,7 +335,7 @@ def plot_dumbbell_single(summary_df, slide_id):
                    s=100, marker='D', label='Within-microenvironment')
         ax.set_yticks(y_pos)
         ax.set_yticklabels(cell_types)
-        ax.set_xlim(0, 1)
+        ax.set_xlim(0.4, 0.9)
         ax.set_xlabel(title, fontsize=14)
 
     fig.suptitle("Global vs. Microenvironment-specific predictions",
@@ -363,7 +363,7 @@ def plot_dumbbell_single(summary_df, slide_id):
     ax.scatter(mean_others.values, y_pos, color='#D55E00', s=100, marker='D', label='CRC subtype (mean)')
     ax.set_yticks(y_pos)
     ax.set_yticklabels(cell_types)
-    ax.set_xlim(0.2, 0.9)
+    ax.set_xlim(0.4, 0.9)
     ax.set_xlabel(r"Spearman $\rho$", fontsize=14)
     fig.suptitle("CRC global vs. subtype predictions", fontsize=16, fontweight='bold', y=0.92)
     handles, labels = ax.get_legend_handles_labels()
@@ -405,8 +405,8 @@ def plot_aggregate_dumbbell(results_path=RESULTS_PATH, fig_save_path=FIG_SAVE_PA
         markersize=16, markeredgewidth=3.0, ax=ax,
     )
 
-    ax.set_xlim(0.45, 0.9)
-    ax.set_xticks([0.5, 0.7, 0.9])
+    ax.set_xlim(0.4, 0.9)
+    ax.set_xticks([0.4, 0.6, 0.8])
     ax.set_xlabel(r"Spearman $\rho$", fontsize=26)
     ax.set_ylabel("", fontsize=26)
     ax.tick_params(axis='both', labelsize=22)
@@ -434,10 +434,21 @@ def main():
     """Submit all: python notebooks/application/03_subdomain_counterfactuals.py --slides 242 232 231 210 221 120"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        '--slides', nargs='+', default=['crc_210'], # all slides: [‘242’, ‘232’, ‘231’, ‘210’, ‘221’, ‘120’]
+        '--slides', nargs='+', default=['crc_210'], # all slides: ['242', '232', '231', '210', '221', '120']
         help='Slide IDs to process (default: crc_210)',
     )
+    parser.add_argument(
+        '--plot-only', action='store_true',
+        help='Skip analysis; regenerate plots from existing CSVs in RESULTS_PATH',
+    )
     args = parser.parse_args()
+
+    if args.plot_only:
+        for fpath in sorted(glob.glob(f"{RESULTS_PATH}/microenvironments_*.csv")):
+            slide_id = os.path.basename(fpath).replace('microenvironments_', '').replace('.csv', '')
+            plot_dumbbell_single(pd.read_csv(fpath), slide_id)
+        plot_aggregate_dumbbell()
+        return
 
     for slide_id in args.slides:
         per_slide(slide_id)
