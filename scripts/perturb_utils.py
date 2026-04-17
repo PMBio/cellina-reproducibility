@@ -65,6 +65,11 @@ def load_crc_slide(
     domains_key
         obs column name for domain/tissue labels.
 
+    Details: 
+    --------
+    The CRC 18k CosMx dataset:
+    https://www.biorxiv.org/content/10.1101/2025.06.23.660674v1.abstract
+
     Returns
     -------
     Preprocessed AnnData with:
@@ -119,6 +124,13 @@ def load_merfish_brain(
         obs column name for cell-type labels.
     domains_key
         obs column name for brain-region/domain labels.
+        
+        
+    Details:
+    --------
+    The MERFISH dataset contains multiple brain sections:
+    https://doi.brainimagelibrary.org/doi/10.35077/act-bag from https://www.nature.com/articles/s41586-023-06808-9#data-availability
+    Where resolution is 0.109 nanometers per pixel, so 10 microns ≈ 92 pixels.
 
     Returns
     -------
