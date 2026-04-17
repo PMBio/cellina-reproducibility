@@ -11,8 +11,6 @@ ADATA_ARGS = {
     "labels_key": 'coarse_type',
     "domains_key": 'typ_clean', #'typ',
     "batch_key": 'sid',
+    "control_domains": ['REF'],
+    "holdout_domains": ['CRC'],
 }
-
-# What to export: whether to normalize+log (default as in notebooks)
-NORMALIZE = True
-LOG1P = True
