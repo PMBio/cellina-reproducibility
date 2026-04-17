@@ -9,7 +9,7 @@ ADATA_ARGS = {
     "min_counts_cells": 3,
     "min_counts_genes": 3,
     "labels_key": 'coarse_type',
-    "domains_key": 'typ_clean', #'typ',
+    "domains_key": 'typ_clean',
     "batch_key": 'sid',
     "control_domains": ['REF'],
     "holdout_domains": ['CRC'],
