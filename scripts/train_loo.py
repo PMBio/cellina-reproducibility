@@ -38,7 +38,7 @@ DEFAULT_DOMAINS_KEY = 'typ'
 DEFAULT_BATCH_KEY = 'sid'
 DEFAULT_CTRL_DOMAINS = ['REF']
 DEFAULT_HOLDOUT_DOMAINS = ['CRC']
-MODEL_ROOT = "/data2/a330d/data/ood/trained"
+MODEL_ROOT = "/data/a330d/data/ood/trained"
 
 # local utils
 from counterfactual_analysis import _normalize_counts
@@ -221,6 +221,8 @@ def preprocess_crc(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT_L
 
 def preprocess_merfish(adata, n_top_genes=1120, n_neighbors=50, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
     adata.obsm["spatial"] = adata.obsm["X_spatial_coords"]
+    adata.X = adata.raw.X.copy()
+    adata.layers['counts'] = adata.raw.X.copy()
 
     return _preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
@@ -662,8 +664,8 @@ def main():
     mc = args.model_class.lower()
     model_name = args.model_name
     inference_only = args.inference_only
-    normalize_counts = False
-    sid = args.adata_path.split('/')[-1].split('.')[0]
+    normalize_counts = False    
+    sid = os.path.basename(args.adata_path).split('.h5ad')[0]
     
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()

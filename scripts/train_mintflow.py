@@ -7,66 +7,42 @@ import os
 from tqdm import tqdm
 import argparse
 
-from utils import set_seed
-from profiler import profile_training
-
 import mintflow
 
+from utils import set_seed
+from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
+from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
+from train_loo import preprocess_crc, preprocess_merfish
 
 set_seed(0)
+DATASET_NAME = "merfish"  # or "merfish"
 
-ADATA_SAVE_PATH = "/data2/a330d/datasets/crc/processed"
-LABELS_KEY = 'coarse_type'
-DOMAINS_KEY = 'typ'
-NUM_EPOCHS = 31
+CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
+CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+
+MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
+
+ADATA_BASE_PATH = CRC_BASE_PATH if DATASET_NAME == "crc" else MERFISH_BASE_PATH
+SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
+DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
+
+NUM_EPOCHS = 1 #31
 BATCH_SIZE = 2048
-PATIENT_ID = 'sid'
+LABELS_KEY = DATA_ARGS.get('labels_key')
+DOMAINS_KEY = DATA_ARGS.get('domains_key')
+N_TOP_GENES = DATA_ARGS.get('n_top_genes')
+PATIENT_ID = DATA_ARGS.get('batch_key')
 N_NEIGHBORS = 5
 CHECKPOINT_INTERVAL = 10
+USE_WANDB = 'False'
+MODEL_OUTPUT_PATH = "/data/a330d/data/ood/trained"
+ADATA_SAVE_PATH = f"/data/a330d/datasets/{DATASET_NAME}/processed"
 X_POS = 'CenterX_global_px'
 Y_POS = 'CenterY_global_px'
-USE_WANDB = 'False'
-MODEL_OUTPUT_PATH = "/data2/a330d/data/ood/trained"
-CSV_PATH = "./results/training_stats.csv"
 
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--adata_path", required=True)
-
-    return p.parse_args()
-
-
-def preprocess_adata(adata, slide_id):
-    adata.obs_names_make_unique()
-
-    from _labels_to_coarse import LABEL_TO_COARSE as LMAP
-    adata.obs['coarse_type'] = adata.obs['ist'].map(LMAP)
-    adata.obs['coarse_type'] = adata.obs['coarse_type'].astype('category')
-    
-    adata = adata[~adata.obs[DOMAINS_KEY].isna()]
-    adata = adata[~adata.obs[LABELS_KEY].isna()]
-
-    sc.pp.filter_cells(adata, min_counts=3)
-    sc.pp.filter_genes(adata, min_counts=3)
-
-    adata.obs[LABELS_KEY] = adata.obs[LABELS_KEY].astype('category')
-    adata.obsm['spatial'] = adata.obs[['CenterX_global_px', 'CenterY_global_px']].values
-    adata.layers['counts'] = adata.X.copy()
-    sc.pp.highly_variable_genes(adata, layer='counts', flavor='seurat_v3', n_top_genes=2000, subset=True)
-
-    adata.X = adata.layers['counts'].copy() # NOTE: use raw counts for training
-
-    adata.obs["sliceID"] = f"slide_{slide_id}"
-    adata.obs["batchID"] = f"slide_{slide_id}"
-
-    adata.obs["sliceID"] = adata.obs["sliceID"].astype("category")
-    adata.obs["batchID"] = adata.obs["batchID"].astype("category")
-
-    adata.write_h5ad(f"{ADATA_SAVE_PATH}/{slide_id}.h5ad")
-
-
-def train_mintflow(adata_save_path, dataset_size, slide_id):
+def train_mintflow(adata_save_path, slide_id):
     num_epochs = NUM_EPOCHS
     batch_size = BATCH_SIZE
     labels_key = LABELS_KEY
@@ -184,36 +160,32 @@ def train_mintflow(adata_save_path, dataset_size, slide_id):
                 )
 
 
-    profile_training(
-        lambda: mintflow_train_loop(model=model,
+    mintflow_train_loop(model=model,
                             trainer=trainer,
                             data_mintflow=data_mintflow,
                             dict_all4_configs=dict_all4_configs,
                             path_output_files=path_output_files,
                             checkpoint_interval=CHECKPOINT_INTERVAL
-                        ),
-        model_name="mintflow",
-        num_epochs=num_epochs,
-        dataset_name="crc",
-        dataset_size=dataset_size,
-        dataset_path=train_file,
-        csv_path=CSV_PATH
-    )
+                        )
 
 
 def main():
-    args = parse_args()
-    slide_id = args.adata_path.split('/')[-1].split('.')[0]
+    for slide_id in SLIDES:
+        print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
+        adata = sc.read_h5ad(f"{ADATA_BASE_PATH}/{slide_id}.h5ad")
+        if DATASET_NAME == 'crc':
+            adata = preprocess_crc(adata, n_top_genes=N_TOP_GENES, n_neighbors=N_NEIGHBORS, labels_key=LABELS_KEY, domains_key=DOMAINS_KEY)
+        elif DATASET_NAME == 'merfish':
+            adata = preprocess_merfish(adata, n_top_genes=N_TOP_GENES, n_neighbors=N_NEIGHBORS, labels_key=LABELS_KEY, domains_key=DOMAINS_KEY)
+        else:
+            raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
+        adata.obs[X_POS] = adata.obsm['spatial'][:, 0]
+        adata.obs[Y_POS] = adata.obsm['spatial'][:, 1]
+        os.makedirs(ADATA_SAVE_PATH, exist_ok=True)
+        adata.write_h5ad(f"{ADATA_SAVE_PATH}/{slide_id}.h5ad")
 
-    # 1. Load adata
-    adata = sc.read(args.adata_path)
-    dataset_size = adata.n_obs
-
-    # 2. Preprocess adata and write to disk
-    preprocess_adata(adata, slide_id=slide_id)
-
-    # 3. Train mintflow
-    train_mintflow(adata_save_path=ADATA_SAVE_PATH, dataset_size=dataset_size, slide_id=slide_id)
+        # Train mintflow
+        train_mintflow(adata_save_path=ADATA_SAVE_PATH, slide_id=slide_id)
 
 
 if __name__ == "__main__":
