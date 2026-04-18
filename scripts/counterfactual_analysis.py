@@ -7,23 +7,14 @@ from scipy.stats import pearsonr, spearmanr
 from sklearn.cluster import KMeans
 
 
-
-def prepare_matrix(M, n_pca=50, standardize=False):
-    """Optional: standardize and reduce dimensionality before computing distances."""
-    M = np.asarray(M)
-    if standardize:
-        M = StandardScaler(with_mean=True, with_std=True).fit_transform(M)
-    if n_pca is not None and M.shape[1] > n_pca:
-        M = PCA(n_components=n_pca, random_state=0).fit_transform(M)
-    return M
-
-
 def mixing_index(
     observed: np.ndarray,
     predicted: np.ndarray,
     n_clusters: int = 2,
     n_pcs: int = 50,
     random_state: int = 0,
+    normalize_counts: bool = True,
+    library_size: float = 1e4,
 ) -> float:
     """
     Mixing index: fraction of predicted cells correctly co-clustered with true cells.
@@ -45,6 +36,9 @@ def mixing_index(
     random_state
         Random seed.
     """
+    observed = _normalize_counts(observed, scale=library_size) if normalize_counts else observed
+    predicted = _normalize_counts(predicted, scale=library_size) if normalize_counts else predicted
+
     n_pred = predicted.shape[0]
     n_true = observed.shape[0]
     expected_proportion = n_pred / n_true
@@ -282,7 +276,7 @@ def get_baseline_delta(
     return delta
 
 
-def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, n_deg=200):
+def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, n_deg=200, direction_match_normalize="intersection"):
     if normalize_counts:
         control = _normalize_counts(control)
         target = _normalize_counts(target)
@@ -301,7 +295,7 @@ def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, 
     pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
     spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
     prec = precision(gt_vec, cf_vec, k=n_deg, use_abs=True)
-    dir_match = direction_match(gt_vec, cf_vec, k=n_deg)
+    dir_match = direction_match(gt_vec, cf_vec, k=n_deg, normalize=direction_match_normalize)
 
     return pear, spear, prec, dir_match, top_features
 
@@ -328,10 +322,15 @@ def compute_rmse(observed, predicted, normalize_counts=True, log1p=True, deg=Non
     return np.sqrt(np.mean((observed_pseudobulk - pred_pseudobulk) ** 2))
 
 
-def direction_match(gt_vec, cf_vec, k):
+def direction_match(gt_vec, cf_vec, k, normalize="intersection"):
     """
-    Direction match computed ONLY on intersection of top-k DE genes
-    (as defined in the STRAND paper).
+    Direction match between gt and cf.
+
+    Parameters
+    ----------
+    normalize : str
+        "intersection" -> divide by |intersection| (current behavior)
+        "k"            -> divide by k
     """
     # Top-k sets (by absolute logFC)
     gt_topk = set(np.argsort(-np.abs(gt_vec))[:k])
@@ -341,9 +340,16 @@ def direction_match(gt_vec, cf_vec, k):
     intersect = list(gt_topk & cf_topk)
 
     if len(intersect) == 0:
-        return 0.0  # or np.nan depending on preference
+        return 0.0  # or np.nan
 
     gt_sign = np.sign(gt_vec[intersect])
     cf_sign = np.sign(cf_vec[intersect])
 
-    return np.mean(gt_sign == cf_sign)
+    correct = np.sum(gt_sign == cf_sign)
+
+    if normalize == "intersection":
+        return correct / len(intersect)
+    elif normalize == "k":
+        return correct / k
+    else:
+        raise ValueError("normalize must be 'intersection' or 'k'")
