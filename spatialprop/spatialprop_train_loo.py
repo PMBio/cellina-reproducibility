@@ -11,25 +11,51 @@ import scanpy as sc
 import torch
 
 sys.path.append('../scripts')
-from train_loo import preprocess_crc, split_indices
+from train_loo import preprocess_crc, preprocess_merfish, split_indices
 
 from spatial_gnn.api.perturbation_api import (
     train_perturbation_model,
 )
+from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
+from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-SLIDES = ['242', '232', '231', '210', '221', '120']
-CELLTYPES = [
+DATASET_NAME = "merfish"  # or "merfish"
+
+CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
+CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+CRC_CELLTYPES = [
     "Endothelial",
     "Epithelial",
     "Fibroblast",
     "Myeloid",
     "T_cell",
 ]
+
+MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
+MERFISH_CELLTYPES = [
+    'glutamatergic neuron',
+    'GABAergic neuron',
+    'astrocyte',
+    'oligodendrocyte',
+    'endothelial cell',
+]
+
+ADATA_BASE_PATH = CRC_BASE_PATH if DATASET_NAME == "crc" else MERFISH_BASE_PATH
+SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
+CELLTYPES = CRC_CELLTYPES if DATASET_NAME == "crc" else MERFISH_CELLTYPES
+DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
+
 max_epochs = 100
 batch_size = 512
-labels_key = "coarse_type"
-domains_key = "typ_clean"
-device = "cuda" if torch.cuda.is_available() else "cpu"
+labels_key = DATA_ARGS.get('labels_key')
+domains_key = DATA_ARGS.get('domains_key')
+n_top_genes = DATA_ARGS.get('n_top_genes')
+n_neighbors = DATA_ARGS.get('n_neighbors')
+control_domains = DATA_ARGS.get('control_domains')
+holdout_domains = DATA_ARGS.get('holdout_domains')
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
+out_dir = "/data/a330d/tmp/"
 
 def _clean_incomplete_gnn_dirs(base_dir: str = "data/gnn_datasets") -> None:
     """Remove GNN dataset subdirs that have no manifest.json (crashed mid-processing)."""
@@ -55,8 +81,13 @@ def clean_all_dirs(base_dir="data/gnn_datasets"):
 def main():
     for slide_id in SLIDES:
         print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
-        adata = sc.read_h5ad(f"/data2/a330d/datasets/crc/raw_zenodo/crc_{slide_id}.h5ad")
-        adata = preprocess_crc(adata, n_top_genes=2000, labels_key=labels_key, domains_key=domains_key)
+        adata = sc.read_h5ad(f"{ADATA_BASE_PATH}/{slide_id}.h5ad")
+        if DATASET_NAME == 'crc':
+            adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        elif DATASET_NAME == 'merfish':
+            adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        else:
+            raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
@@ -75,10 +106,11 @@ def main():
             adata.obs["region"] = adata.obs[domains_key]
 
             # 2. Holdout split (marks adata.obs['is_holdout'])
-            train_idx, val_idx, test_idx = split_indices(adata, 
-                                                        holdout_ct, 
-                                                        labels_key=labels_key, 
-                                                        domains_key=domains_key, 
+            train_idx, val_idx, test_idx = split_indices(adata,
+                                                        holdout_ct,
+                                                        labels_key=labels_key,
+                                                        domains_key=domains_key,
+                                                        holdout_domains=holdout_domains,
                                                         seed=0)
             print(
                 f"  train={len(train_idx):,}  val={len(val_idx):,}  "
@@ -86,8 +118,7 @@ def main():
             )
 
             # 3. Save train/test h5ad files
-            exp_name = f"crc_{slide_id}_loo_{holdout_ct}"
-            out_dir = "/data2/a330d/tmp/"
+            exp_name = f"{slide_id}_loo_{holdout_ct}"
             out_dir_ct = os.path.join(out_dir, exp_name)
             os.makedirs(out_dir_ct, exist_ok=True)
 
@@ -99,7 +130,7 @@ def main():
 
             # 4. Train spatial-prop GNN on training data
             training_args = dict(
-                dataset=f"crc_{slide_id}_{holdout_ct}_loo",
+                dataset=f"{slide_id}_{holdout_ct}_loo",
                 file_path=train_path,
                 train_ids=[str(slide_id)],
                 test_ids=[str(slide_id)],
@@ -124,7 +155,7 @@ def main():
                 train_perturbation_model(**training_args)
             )
             print(f"  Model saved to: {trained_model_path}")
-            clean_all_dirs()
+            #clean_all_dirs()
 
 if __name__ == "__main__":
     main()
