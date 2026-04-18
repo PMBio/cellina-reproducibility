@@ -5,7 +5,7 @@ import scanpy as sc
 import torch
 
 sys.path.append('../scripts')
-from train_loo import preprocess_adata
+from train_loo import preprocess_crc
 from counterfactual_analysis import compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
@@ -20,14 +20,13 @@ from spatial_gnn.utils.dataset_utils import (
     load_model_from_path,
 )
 
-#SLIDES = ['242', '232', '231', '210', '221', '120']
-SLIDES = ['232']
+SLIDES = ['242', '232', '231', '210', '221', '120']
 CELLTYPES = [
-    #"Endothelial",
-    #"Epithelial",
+    "Endothelial",
+    "Epithelial",
     "Fibroblast",
-    #"Myeloid",
-    #"T_cell",
+    "Myeloid",
+    "T_cell",
 ]
 batch_size = 512
 labels_key = "coarse_type"
@@ -109,7 +108,7 @@ def main():
     for slide_id in SLIDES:
         print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
         adata = sc.read_h5ad(f"/data2/a330d/datasets/crc/raw_zenodo/crc_{slide_id}.h5ad")
-        adata = preprocess_adata(adata)
+        adata = preprocess_crc(adata, n_top_genes=2000, labels_key=labels_key, domains_key=domains_key)
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
@@ -221,7 +220,7 @@ def main():
                 )
             
             # Remove spatialprop-generated data files
-            #clean_all_dirs()
+            clean_all_dirs()
     
     df_results = pd.DataFrame(results)
     df_results.to_csv(f"{results_csv_path}", index=False)

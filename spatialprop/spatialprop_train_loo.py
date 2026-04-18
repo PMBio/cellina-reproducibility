@@ -11,7 +11,7 @@ import scanpy as sc
 import torch
 
 sys.path.append('../scripts')
-from train_loo import preprocess_adata, split_indices
+from train_loo import preprocess_crc, split_indices
 
 from spatial_gnn.api.perturbation_api import (
     train_perturbation_model,
@@ -56,7 +56,7 @@ def main():
     for slide_id in SLIDES:
         print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
         adata = sc.read_h5ad(f"/data2/a330d/datasets/crc/raw_zenodo/crc_{slide_id}.h5ad")
-        adata = preprocess_adata(adata)
+        adata = preprocess_crc(adata, n_top_genes=2000, labels_key=labels_key, domains_key=domains_key)
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
