@@ -17,7 +17,6 @@ import subprocess
 import shlex
 import glob
 from pathlib import Path
-import os
 import time
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -26,23 +25,23 @@ LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
 
 # Populate these lists manually
-DATASET_NAME = "merfish"  # or "merfish"
+DATASET_NAME = "crc"  # or "merfish"
 
 CRC_PATHS = [
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
 
 CRC_HOLDOUTS = [
-    #"Endothelial",
-    #"Epithelial",
+    "Endothelial",
+    "Epithelial",
     "Fibroblast",
-    #"Myeloid",
-    #"T_cell",
+    "Myeloid",
+    "T_cell",
 ]
 
 MERFISH_PATHS = [
@@ -66,10 +65,9 @@ MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina"}
     {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
     {"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--use_cf"},
-    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
-    #{"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
+    {"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
+    {"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
     {"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
 ]
 
