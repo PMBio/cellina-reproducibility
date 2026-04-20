@@ -197,6 +197,7 @@ def main():
                 edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg)
                 edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, local=True)
                 mix_idx = mixing_index(observed=target, predicted=counterfactual)
+                _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
 
                 results.append(
                     dict(
@@ -211,6 +212,7 @@ def main():
                         pearson=pear,
                         precision=prec,
                         direction_match=dir_match,
+                        direction_match_k=dir_match_k,
                         mixing_index=mix_idx,
                         edistance_global=edist_global,
                         edistance_local=edist_local,
