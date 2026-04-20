@@ -11,21 +11,25 @@ Key args:
 - `--slide_id` (default: 242)
 - `--groupby` — comma-separated holdout cell types
 - `--top_n_perturb` (default: 100) — genes used for neighbor perturbation
-- `--top_n` (default: 100) — genes used for metric evaluation
+- `--top_n` (default: 50) — genes used for metric evaluation
 - `--out_dir` (default: `results/perturb_benchmark`)
 - `--min_cells`, `--batch_size`, `--max_epochs`
 
-### `spatialprop_loo.py`
-Same LOO benchmark for the SpatialProp GNN baseline. Accepts identical arguments to `cellina_loo.py`.
+### `perturb_gene_range.py`
+Sweeps perturbation performance vs. number of perturbed genes for a single slide. Writes results to `results/gene_range/<slide_id>/results.csv`.
 
-### `run_perturb_loo.sh`
-Runs `cellina_loo.py` (GPU 1) and `spatialprop_loo.py` (GPU 0) in parallel, then merges their result CSVs. Accepts the same arguments forwarded to both scripts.
+Key args:
+- `--slide_id` (required)
+- `--gpu` (default: 0)
+- `--out_dir` (default: `results/gene_range`)
+- `--batch_size`, `--min_cells`, `--top_n`
+
+### `run_gene_range.sh`
+Submits `perturb_gene_range.py` over all CRC slides in parallel (GPU 1). Accepts `-n MAX_CONCURRENT` (default: 2).
 
 ## Notebooks
 
 | Notebook | Purpose |
 |----------|---------|
-| `perturb_loo.ipynb` | Interactive walkthrough of the Cellina LOO evaluation for a single held-out cell type |
-| `spatialprop_loo.ipynb` | Same walkthrough for the SpatialProp GNN baseline |
-| `perturb_loo_plot.ipynb` | Reads the merged benchmark CSV and plots per-cell-type metrics comparing both methods |
-| `perturb_gene_range.ipynb` | Sensitivity analysis: sweeps the number of perturbed genes to assess its effect on performance |
+| `perturb_gene_range.ipynb` | Interactive walkthrough of perturbation performance vs. number of perturbed genes for a single slide |
+| `perturb_gene_range_analysis.ipynb` | Multi-slide analysis: loads gene-range results across all slides and plots aggregated metrics |
