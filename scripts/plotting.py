@@ -271,3 +271,152 @@ def plot_pathway_activity(pw_acts, pw_padj, alpha=0.05):
         fig = dc.pl.barplot(data=df, name=str(sample), figsize=(9, 5), return_fig=True)
         ax = fig.axes[0]
         ax.set_title(f"Pathway activities for Module {sample}")
+
+
+def plot_model_comparison(
+    dataset_name,
+    df,
+    metrics,
+    grouping,
+    model_order,
+    palette,
+    average_only=False,
+    save=False,
+    save_path="../figures",
+    save_name="ood_summary"
+):
+    # Compute global y-limits
+    ymin = df[metrics].min().min() * 0.3
+    ymax = df[metrics].max().max() * 1.05
+
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 5))
+    n_deg = df["n_deg"].iloc[0]
+    title = f"{dataset_name}: Performance (observed vs predicted) for DEG {n_deg}"
+    fig.suptitle(title, fontsize=16)
+
+    # Ensure axes iterable if only one metric
+    if len(metrics) == 1:
+        axes = [axes]
+
+    for ax, metric in zip(axes, metrics):
+
+        if not average_only:
+            # -------------------------------
+            # Per-celltype plot
+            # -------------------------------
+            celltypes = df[grouping].unique().tolist()
+            all_x_labels = list(celltypes) + ["Average"]
+
+            sns.barplot(
+                data=df,
+                x=grouping,
+                y=metric,
+                hue="model_name",
+                estimator="mean",
+                errorbar="se",
+                hue_order=model_order,
+                ax=ax,
+                palette=palette,
+                order=celltypes,
+            )
+            ax.legend_.remove()
+
+            # -------------------------------
+            # Add averages manually (WITH SE)
+            # -------------------------------
+            df_avg = df.groupby("model_name")[metric].mean()
+            df_se = df.groupby("model_name")[metric].sem()
+
+            n_models = len(model_order)
+            bar_width = 0.8 / n_models
+
+            for i, model in enumerate(model_order):
+                avg_val = df_avg.loc[model]
+                se_val = df_se.loc[model]
+
+                x_pos = len(celltypes) - 0.4 + i * bar_width + bar_width / 2
+
+                ax.bar(
+                    x=x_pos,
+                    height=avg_val,
+                    width=bar_width,
+                    color=palette[model],
+                    alpha=0.9,
+                    yerr=se_val,
+                    capsize=0,
+                )
+
+            ax.set_xticks(range(len(all_x_labels)))
+            ax.set_xticklabels(all_x_labels, rotation=45)
+
+        else:
+            # -------------------------------
+            # AVERAGE-ONLY plot (clean)
+            # -------------------------------
+            df_avg = (
+                df.groupby(["model_name"])[metric]
+                .agg(["mean", "sem"])
+                .reset_index()
+            )
+
+            sns.barplot(
+                data=df_avg,
+                x="model_name",
+                y="mean",
+                hue="model_name",
+                order=model_order,
+                palette=palette,
+                errorbar=None,  # we add manually
+                ax=ax,
+            )
+
+            # Add SE manually
+            for i, model in enumerate(model_order):
+                row = df_avg[df_avg.model_name == model].iloc[0]
+                ax.errorbar(
+                    x=i,
+                    y=row["mean"],
+                    yerr=row["sem"],
+                    fmt="none",
+                    capsize=0,
+                    color="black",
+                )
+
+            #ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+            ax.tick_params(axis="x", rotation=45)
+
+        # -------------------------------
+        # Shared styling
+        # -------------------------------
+        ax.set_ylim(ymin, ymax)
+        ax.set_title(metric)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+    # -------------------------------
+    # Global legend (only once)
+    # -------------------------------
+    if not average_only:
+        handles, labels = axes[0].get_legend_handles_labels()
+    else:
+        handles = [
+            plt.Rectangle((0, 0), 1, 1, color=palette[m])
+            for m in model_order
+        ]
+        labels = model_order
+
+    fig.legend(
+        handles,
+        labels,
+        ncol=len(labels),
+        fontsize=10,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+    )
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.3)
+
+    if save:
+        plt.savefig(f"{save_path}/{save_name}.svg", format="svg", bbox_inches="tight")
+    plt.show()
