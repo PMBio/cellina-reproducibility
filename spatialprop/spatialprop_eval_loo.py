@@ -5,7 +5,7 @@ import scanpy as sc
 import torch
 
 sys.path.append('../scripts')
-from train_loo import preprocess_crc
+from train_loo import preprocess_crc, preprocess_merfish
 from counterfactual_analysis import compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
@@ -20,25 +20,50 @@ from spatial_gnn.utils.dataset_utils import (
     load_model_from_path,
 )
 
-SLIDES = ['242', '232', '231', '210', '221', '120']
-CELLTYPES = [
+from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
+from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
+
+DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
+
+CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
+CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+CRC_CELLTYPES = [
     "Endothelial",
     "Epithelial",
     "Fibroblast",
     "Myeloid",
     "T_cell",
 ]
-batch_size = 512
-labels_key = "coarse_type"
-domains_key = "typ_clean"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-adata_out_dir = "/data2/a330d/tmp/"
-model_base_path = '/data/a330d/projects/cellina-reproducibility-worktrees/major-loo/spatialprop'
-results_csv_path = '../results/loo_spatialprop_crc.csv'
-top_n_perturb = 2000
-top_n = 200
+
+MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
+MERFISH_CELLTYPES = [
+    'glutamatergic neuron',
+    'GABAergic neuron',
+    'astrocyte',
+    'oligodendrocyte',
+    'endothelial cell',
+]
+
+ADATA_BASE_PATH = CRC_BASE_PATH if DATASET_NAME == "crc" else MERFISH_BASE_PATH
+SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
+CELLTYPES = CRC_CELLTYPES if DATASET_NAME == "crc" else MERFISH_CELLTYPES
+DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
+
+top_n = 50
 min_cells = 50
-dataset_name = "crc"
+batch_size = 512
+labels_key = DATA_ARGS.get('labels_key')
+domains_key = DATA_ARGS.get('domains_key')
+n_top_genes = DATA_ARGS.get('n_top_genes')
+top_n_perturb = n_top_genes
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
+n_neighbors = DATA_ARGS.get('n_neighbors')
+control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one control domain for simplicity
+holdout_domains = DATA_ARGS.get('holdout_domains')
+out_dir = "/data/a330d/tmp/"
+model_base_path = '/data/a330d/projects/cellina-reproducibility/spatialprop'
+results_csv_path = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}.csv'
 
 
 def predict_for_holdout(
@@ -107,8 +132,13 @@ def main():
     results = []
     for slide_id in SLIDES:
         print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
-        adata = sc.read_h5ad(f"/data2/a330d/datasets/crc/raw_zenodo/crc_{slide_id}.h5ad")
-        adata = preprocess_crc(adata, n_top_genes=2000, labels_key=labels_key, domains_key=domains_key)
+        adata = sc.read_h5ad(f"{ADATA_BASE_PATH}/{slide_id}.h5ad")
+        if DATASET_NAME == 'crc':
+            adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        elif DATASET_NAME == 'merfish':
+            adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        else:
+            raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
@@ -127,103 +157,104 @@ def main():
             adata.obs["region"] = adata.obs[domains_key]            
 
             # 2. Get test h5ad file paths
-            exp_name = f"crc_{slide_id}_loo_{holdout_ct}"
-            adata_out_dir = "/data2/a330d/tmp/"
-            out_dir_ct = os.path.join(adata_out_dir, exp_name)
+            exp_name = f"{slide_id}_loo_{holdout_ct}"
+            out_dir_ct = os.path.join(out_dir, exp_name)
             test_path = os.path.join(out_dir_ct, "adata_test.h5ad")
             perturbed_path = os.path.join(out_dir_ct, "adata_test_perturbed.h5ad")
 
-            # 3. Compute pseudobulk logFC → perturbation dict
-            domain_logfc_df, ref_label, crc_label = compute_pseudobulk_logfc(
-                adata, labels_key, domains_key
-            )
-            perturbation_dict = {}
-            s = domain_logfc_df.loc[holdout_ct]
-            top_genes = s.abs().nlargest(top_n_perturb).index.tolist()
-            perturbation_dict[holdout_ct] = s[top_genes].to_dict()
 
-            # 4. Create perturbed input matrix
-            adata_test = sc.read_h5ad(test_path)
-            create_perturbation_input_matrix(
-                adata_test,
-                perturbation_dict,
-                save_path=perturbed_path,
-                normalize_total=True,
-            )
-
-            # 5. Run GNN inference restricted to holdout cell type
-            trained_model_path = f'{model_base_path}/output/{exp_name}/crc_{slide_id}_{holdout_ct}_loo_expression_2hop_2augment_expression_none/weightedl1_1en03/model.pth'            
-            adata_result = predict_for_holdout(
-                perturbed_path,
-                trained_model_path,
-                exp_name,
-                center_celltypes=[holdout_ct],
-                use_ids=[str(slide_id)],
-                device=device,
-                batch_size=batch_size,
-            )
-
-            
-            # 6. Compute eval stats
-            mask_ref = (
-                (adata_result.obs["celltype"] == holdout_ct)
-                & (adata_result.obs["region"] == ref_label)
-            )
-            mask_crc = (
-                (adata_result.obs["celltype"] == holdout_ct)
-                & (adata_result.obs["region"] == crc_label)
-            )
-
-            n_ref = int(mask_ref.sum())
-            n_crc = int(mask_crc.sum())
-            print(f"  [spatialprop] {holdout_ct}: ref={n_ref}, crc={n_crc}")
-
-            if n_ref < min_cells or n_crc < min_cells:
-                print(f"  skip {holdout_ct}: too few cells (need ≥ {min_cells})")
-            else:
-                ref_expr = total_normalize(adata_result[mask_ref].X)
-                pert_expr = total_normalize(
-                    # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
-                    adata_result[mask_crc].layers["predicted_perturbed"]
+            for hd in holdout_domains:
+                # 3. Compute pseudobulk logFC → perturbation dict
+                domain_logfc_df = compute_pseudobulk_logfc(
+                    adata, labels_key, domains_key, control_domain=control_domain, holdout_domain=hd
                 )
-                obs_expr = total_normalize(adata_result[mask_crc].X)
+                perturbation_dict = {}
+                s = domain_logfc_df.loc[holdout_ct]
+                top_genes = s.abs().nlargest(top_n_perturb).index.tolist()
+                perturbation_dict[holdout_ct] = s[top_genes].to_dict()
 
-                control = ref_expr
-                target = obs_expr
-                counterfactual = pert_expr
+                # 4. Create perturbed input matrix
+                adata_test = sc.read_h5ad(test_path)
+                create_perturbation_input_matrix(
+                    adata_test,
+                    perturbation_dict,
+                    save_path=perturbed_path,
+                    normalize_total=True,
+                )
 
-                pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
-                rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg)
-                edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg)
-                edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, local=True)
-                mix_idx = mixing_index(observed=target, predicted=counterfactual)
-                _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
+                # 5. Run GNN inference restricted to holdout cell type
+                trained_model_path = f'{model_base_path}/output/{exp_name}/{slide_id}_{holdout_ct}_loo_expression_2hop_2augment_expression_none/weightedl1_1en03/model.pth'            
+                adata_result = predict_for_holdout(
+                    perturbed_path,
+                    trained_model_path,
+                    exp_name,
+                    center_celltypes=[holdout_ct],
+                    use_ids=[str(slide_id)],
+                    device=device,
+                    batch_size=batch_size,
+                )
 
-                results.append(
-                    dict(
-                        dataset_name=dataset_name,
-                        sid=slide_id,
-                        control_domain=ref_label,
-                        target_domain=crc_label,
-                        n_deg=top_n,
-                        model_name="spatialprop",
-                        holdout_celltype=holdout_ct,
-                        spearman=spear,
-                        pearson=pear,
-                        precision=prec,
-                        direction_match=dir_match,
-                        direction_match_k=dir_match_k,
-                        mixing_index=mix_idx,
-                        edistance_global=edist_global,
-                        edistance_local=edist_local,
-                        rmse=rmse,
-                        top_n_perturb=top_n_perturb,
+                
+                # 6. Compute eval stats
+                mask_ref = (
+                    (adata_result.obs["celltype"] == holdout_ct)
+                    & (adata_result.obs["region"] == control_domain)
+                )
+                mask_crc = (
+                    (adata_result.obs["celltype"] == holdout_ct)
+                    & (adata_result.obs["region"] == hd)
+                )
+
+                n_ref = int(mask_ref.sum())
+                n_crc = int(mask_crc.sum())
+                print(f"  [spatialprop] {holdout_ct}: ref={n_ref}, crc={n_crc}")
+
+                if n_ref < min_cells or n_crc < min_cells:
+                    print(f"  skip {holdout_ct}: too few cells (need ≥ {min_cells})")
+                else:
+                    ref_expr = total_normalize(adata_result[mask_ref].X)
+                    pert_expr = total_normalize(
+                        # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
+                        adata_result[mask_crc].layers["predicted_perturbed"]
                     )
-                )
+                    obs_expr = total_normalize(adata_result[mask_crc].X)
+
+                    control = ref_expr
+                    target = obs_expr
+                    counterfactual = pert_expr
+
+                    pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
+                    rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg)
+                    edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg)
+                    edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, local=True)
+                    mix_idx = mixing_index(observed=target, predicted=counterfactual)
+                    _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
+
+                    results.append(
+                        dict(
+                            dataset_name=DATASET_NAME,
+                            sid=slide_id,
+                            control_domain=control_domain,
+                            target_domain=hd,
+                            n_deg=top_n,
+                            model_name="spatialprop",
+                            holdout_celltype=holdout_ct,
+                            spearman=spear,
+                            pearson=pear,
+                            precision=prec,
+                            direction_match=dir_match,
+                            direction_match_k=dir_match_k,
+                            mixing_index=mix_idx,
+                            edistance_global=edist_global,
+                            edistance_local=edist_local,
+                            rmse=rmse,
+                            top_n_perturb=top_n_perturb,
+                        )
+                    )
             
             # Remove spatialprop-generated data files
-            clean_all_dirs()
-    
+            # clean_all_dirs()
+
     df_results = pd.DataFrame(results)
     df_results.to_csv(f"{results_csv_path}", index=False)
 

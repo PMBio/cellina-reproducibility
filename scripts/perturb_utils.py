@@ -147,31 +147,12 @@ def load_merfish_brain(
 # ---------------------------------------------------------------------------
 # Pseudobulk logFC
 # ---------------------------------------------------------------------------
-
-def _get_domain_labels(adata, domains_key: str) -> tuple[str, str]:
-    """Infer the REF and CRC domain labels from adata.obs[domains_key].
-
-    Scans the unique values for entries containing 'REF' and 'CRC' so the
-    exact label format (e.g. '242_REF') never needs to be hardcoded.
-    """
-    unique = adata.obs[domains_key].astype(str).unique()
-    ref_matches = [d for d in unique if "REF" in d]
-    crc_matches = [d for d in unique if "CRC" in d]
-    if len(ref_matches) != 1:
-        raise ValueError(
-            f"Expected exactly 1 domain containing 'REF', found: {ref_matches}"
-        )
-    if len(crc_matches) != 1:
-        raise ValueError(
-            f"Expected exactly 1 domain containing 'CRC', found: {crc_matches}"
-        )
-    return ref_matches[0], crc_matches[0]
-
-
 def compute_pseudobulk_logfc(
     adata,
     labels_key: str = "coarse_type",
     domains_key: str = "typ",
+    control_domain: str = "REF",
+    holdout_domain: str = "CRC",
 ) -> tuple:
     """Pseudobulk sum → normalize → log1p → logFC (CRC − REF) per cell type.
 
@@ -196,8 +177,6 @@ def compute_pseudobulk_logfc(
     """
     import decoupler as dc
 
-    ref_label, crc_label = _get_domain_labels(adata, domains_key)
-
     pdata = dc.pp.pseudobulk(
         adata=adata,
         sample_col=domains_key,
@@ -211,8 +190,8 @@ def compute_pseudobulk_logfc(
     cell_types = [
         ct for ct in pdata.obs[labels_key].unique()
         if (
-            ((pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)).any()
-            and ((pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)).any()
+            ((pdata.obs[domains_key] == control_domain) & (pdata.obs[labels_key] == ct)).any()
+            and ((pdata.obs[domains_key] == holdout_domain) & (pdata.obs[labels_key] == ct)).any()
         )
     ]
 
@@ -221,10 +200,10 @@ def compute_pseudobulk_logfc(
             pd.Series(
                 (
                     pdata[
-                        (pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)
+                        (pdata.obs[domains_key] == holdout_domain) & (pdata.obs[labels_key] == ct)
                     ].X
                     - pdata[
-                        (pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)
+                        (pdata.obs[domains_key] == control_domain) & (pdata.obs[labels_key] == ct)
                     ].X
                 ).flatten(),
                 index=pdata.var_names,
@@ -235,7 +214,7 @@ def compute_pseudobulk_logfc(
         axis=1,
     ).T
 
-    return domain_logfc_df, ref_label, crc_label
+    return domain_logfc_df
 
 
 # ---------------------------------------------------------------------------

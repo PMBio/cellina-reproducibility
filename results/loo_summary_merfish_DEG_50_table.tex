@@ -1,0 +1,27 @@
+\begin{table}[t]
+\centering
+\caption{Leave-one-celltype-out performance (top 50 DEGs). For each slide we first average over the held-out cell types, then report mean $\pm$ std across 3 slides. Best per metric in \textbf{bold}.}
+\label{tab:loo_summary_merfish_DEG_50}
+\begin{tabular}{llccccc}
+\toprule
+Holdout \\ perturbation & Method & Spearman $\uparrow$ & Pearson $\uparrow$ & Precision $\uparrow$ & Direction Match (K) $\uparrow$ & E-dist (local) $\downarrow$ \\
+\toprule
+
+\multirow[c]{6}{*}{Fiber-tracts} & mean shift & 0.351 $\pm$ 0.272 & 0.361 $\pm$ 0.239 & 0.071 $\pm$ 0.069 & 0.068 $\pm$ 0.069 & 10.322 $\pm$ 3.513 \\
+ & CPA & 0.585 $\pm$ 0.207 & 0.798 $\pm$ 0.150 & 0.319 $\pm$ 0.128 & 0.309 $\pm$ 0.126 & 2.520 $\pm$ 2.521 \\
+ & scGen & 0.496 $\pm$ 0.230 & 0.716 $\pm$ 0.201 & 0.151 $\pm$ 0.089 & 0.149 $\pm$ 0.090 & 2.994 $\pm$ 2.519 \\
+ & cellina (ablated) & 0.585 $\pm$ 0.215 & 0.797 $\pm$ 0.141 & 0.292 $\pm$ 0.143 & 0.280 $\pm$ 0.142 & 2.666 $\pm$ 2.787 \\
+ & cellina (graph) & 0.635 $\pm$ 0.142 & 0.807 $\pm$ 0.153 & 0.397 $\pm$ 0.171 & 0.386 $\pm$ 0.174 & 2.570 $\pm$ 2.431 \\
+ & cellina & \textbf{0.670 $\pm$ 0.222} & \textbf{0.832 $\pm$ 0.151} & \textbf{0.500 $\pm$ 0.232} & \textbf{0.492 $\pm$ 0.237} & \textbf{2.275 $\pm$ 2.134} \\
+\midrule
+
+\multirow[c]{6}{*}{Isocortex} & mean shift & 0.594 $\pm$ 0.189 & 0.575 $\pm$ 0.192 & 0.256 $\pm$ 0.077 & 0.251 $\pm$ 0.081 & 18.318 $\pm$ 4.657 \\
+ & CPA & 0.782 $\pm$ 0.170 & 0.838 $\pm$ 0.172 & 0.535 $\pm$ 0.137 & 0.535 $\pm$ 0.137 & 4.818 $\pm$ 3.752 \\
+ & scGen & 0.720 $\pm$ 0.183 & 0.820 $\pm$ 0.143 & 0.268 $\pm$ 0.162 & 0.268 $\pm$ 0.162 & 5.854 $\pm$ 4.366 \\
+ & cellina (ablated) & 0.789 $\pm$ 0.163 & 0.841 $\pm$ 0.163 & 0.503 $\pm$ 0.139 & 0.501 $\pm$ 0.139 & 5.124 $\pm$ 4.331 \\
+ & cellina (graph) & \textbf{0.845 $\pm$ 0.105} & \textbf{0.889 $\pm$ 0.142} & \textbf{0.627 $\pm$ 0.114} & \textbf{0.627 $\pm$ 0.114} & 4.674 $\pm$ 3.159 \\
+ & cellina & 0.816 $\pm$ 0.178 & 0.861 $\pm$ 0.171 & 0.615 $\pm$ 0.164 & 0.615 $\pm$ 0.164 & \textbf{4.334 $\pm$ 3.214} \\
+
+\bottomrule
+\end{tabular}
+\end{table}
