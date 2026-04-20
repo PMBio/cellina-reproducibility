@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
 import numpy as np
+import scipy.sparse as sp
 import pandas as pd
 import scanpy as sc
 import torch
@@ -160,11 +162,13 @@ def load_merfish_brain(
 # Pseudobulk logFC
 # ---------------------------------------------------------------------------
 
-def _get_domain_labels(adata, domains_key: str) -> tuple[str, str]:
+def _get_domain_labels(adata, domains_key: str) -> tuple[str, list[str]]:
     """Infer the REF and CRC domain labels from adata.obs[domains_key].
 
     Scans the unique values for entries containing 'REF' and 'CRC' so the
     exact label format (e.g. '242_REF') never needs to be hardcoded.
+
+    Returns a single REF label and a list of CRC labels (warns if >1).
     """
     unique = adata.obs[domains_key].astype(str).unique()
     ref_matches = [d for d in unique if "REF" in d]
@@ -173,11 +177,16 @@ def _get_domain_labels(adata, domains_key: str) -> tuple[str, str]:
         raise ValueError(
             f"Expected exactly 1 domain containing 'REF', found: {ref_matches}"
         )
-    if len(crc_matches) != 1:
+    if len(crc_matches) == 0:
         raise ValueError(
-            f"Expected exactly 1 domain containing 'CRC', found: {crc_matches}"
+            f"Expected at least 1 domain containing 'CRC', found none"
         )
-    return ref_matches[0], crc_matches[0]
+    if len(crc_matches) > 1:
+        warnings.warn(
+            f"Found multiple CRC domains: {crc_matches}. Combining all for logFC.",
+            stacklevel=2,
+        )
+    return ref_matches[0], crc_matches
 
 
 def compute_pseudobulk_logfc(
@@ -208,7 +217,7 @@ def compute_pseudobulk_logfc(
     """
     import decoupler as dc
 
-    ref_label, crc_label = _get_domain_labels(adata, domains_key)
+    ref_label, crc_labels = _get_domain_labels(adata, domains_key)
 
     pdata = dc.pp.pseudobulk(
         adata=adata,
@@ -224,30 +233,20 @@ def compute_pseudobulk_logfc(
         ct for ct in pdata.obs[labels_key].unique()
         if (
             ((pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)).any()
-            and ((pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)).any()
+            and (pdata.obs[domains_key].isin(crc_labels) & (pdata.obs[labels_key] == ct)).any()
         )
     ]
 
-    domain_logfc_df = pd.concat(
-        [
-            pd.Series(
-                (
-                    pdata[
-                        (pdata.obs[domains_key] == crc_label) & (pdata.obs[labels_key] == ct)
-                    ].X
-                    - pdata[
-                        (pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)
-                    ].X
-                ).flatten(),
-                index=pdata.var_names,
-                name=ct,
-            )
-            for ct in cell_types
-        ],
-        axis=1,
-    ).T
+    _ct_rows = []
+    for ct in cell_types:
+        _crc = pdata[pdata.obs[domains_key].isin(crc_labels) & (pdata.obs[labels_key] == ct)].X
+        _ref = pdata[(pdata.obs[domains_key] == ref_label)   & (pdata.obs[labels_key] == ct)].X
+        _crc_m = np.asarray(_crc.mean(axis=0)).flatten() if sp.issparse(_crc) else _crc.mean(axis=0).flatten()
+        _ref_m = np.asarray(_ref.mean(axis=0)).flatten() if sp.issparse(_ref) else _ref.mean(axis=0).flatten()
+        _ct_rows.append(pd.Series(_crc_m - _ref_m, index=pdata.var_names, name=ct))
+    domain_logfc_df = pd.concat(_ct_rows, axis=1).T
 
-    return domain_logfc_df, ref_label, crc_label
+    return domain_logfc_df, ref_label, crc_labels
 
 
 # ---------------------------------------------------------------------------
