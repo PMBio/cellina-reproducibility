@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-SLIDE_IDS=('110' '120' '210' '221' '231' '232' '242') // 222 is excluded due to missing data; 110 has patches missing
+SLIDE_IDS=('120' '210' '221' '231' '232' '242') # 222 is excluded due to missing labels; 110 has patches missing
 MAX_CONCURRENT=2
 GPU_IDS=(1)            # all jobs run on GPU 1
 OUT_DIR="results/gene_range"

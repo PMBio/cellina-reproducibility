@@ -50,7 +50,7 @@ def load_crc_slide(
     data_dir: str = "../../data/crc_wt_cosmx",
     n_top_genes: int = 3000,
     labels_key: str = "coarse_type",
-    domains_key: str = "typ",
+    domains_key: str = "typ_clean",
 ):
     """Load and preprocess a CRC CosMx slide.
 
@@ -76,6 +76,7 @@ def load_crc_slide(
     -------
     Preprocessed AnnData with:
     - ``obs[labels_key]``: coarse cell-type categories
+    - ``obs['typ_clean']``: clean domain labels (``"REF"``, ``"CRC"``, ``"TVA"``)
     - ``obsm['spatial']``: spatial coordinates
     - ``layers['counts']``: raw counts
     - HVG-filtered genes
@@ -87,6 +88,7 @@ def load_crc_slide(
     adata.obs_names_make_unique()
 
     adata.obs[labels_key] = adata.obs["ist"].map(_LABEL_TO_COARSE)
+    adata.obs["typ_clean"] = adata.obs["typ"].str.extract(r"(REF|TVA|CRC)", expand=False)
 
     adata = adata[~adata.obs[domains_key].isna()].copy()
     adata = adata[~adata.obs[labels_key].isna()].copy()
