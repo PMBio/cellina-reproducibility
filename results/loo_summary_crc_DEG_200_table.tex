@@ -1,18 +1,18 @@
 \begin{table}
 \caption{Leave-one-celltype-out performance (top 200 DEGs). Mean $\pm$ std across slides. Best per metric in \textbf{bold}.}
 \label{tab:loo_summary_crc}
-\begin{tabular}{lccccc}
+\begin{tabular}{lccc}
 \toprule
- & Spearman $\uparrow$ & Pearson $\uparrow$ & Precision $\uparrow$ & Direction Match (K) $\uparrow$ & E-dist (local) $\downarrow$ \\
+ & Pearson $\uparrow$ & Precision $\uparrow$ & E-dist (local) $\downarrow$ \\
 \midrule
-mean shift & 0.450 $\pm$ 0.268 & 0.435 $\pm$ 0.270 & 0.249 $\pm$ 0.096 & 0.208 $\pm$ 0.088 & 25.371 $\pm$ 5.902 \\
-CPA & 0.544 $\pm$ 0.196 & 0.630 $\pm$ 0.218 & 0.249 $\pm$ 0.139 & 0.239 $\pm$ 0.145 & 4.315 $\pm$ 3.612 \\
-scGen & 0.497 $\pm$ 0.259 & 0.506 $\pm$ 0.363 & 0.296 $\pm$ 0.134 & 0.266 $\pm$ 0.152 & \textbf{3.578 $\pm$ 2.931} \\
-SpatialProp & 0.415 $\pm$ 0.253 & 0.473 $\pm$ 0.285 & 0.138 $\pm$ 0.083 & 0.123 $\pm$ 0.088 & 16.660 $\pm$ 4.242 \\
-MintFlow & 0.582 $\pm$ 0.270 & 0.660 $\pm$ 0.283 & 0.267 $\pm$ 0.154 & 0.248 $\pm$ 0.162 & 23.967 $\pm$ 4.852 \\
-cellina (ablated) & 0.647 $\pm$ 0.212 & 0.740 $\pm$ 0.225 & 0.334 $\pm$ 0.132 & 0.323 $\pm$ 0.140 & 4.348 $\pm$ 3.732 \\
-cellina (graph) & \textbf{0.753 $\pm$ 0.139} & \textbf{0.855 $\pm$ 0.141} & \textbf{0.449 $\pm$ 0.152} & \textbf{0.443 $\pm$ 0.159} & 4.532 $\pm$ 3.633 \\
-cellina & 0.741 $\pm$ 0.156 & 0.834 $\pm$ 0.158 & 0.389 $\pm$ 0.134 & 0.384 $\pm$ 0.140 & 4.604 $\pm$ 3.618 \\
+mean shift & 0.435 $\pm$ 0.270 & 0.249 $\pm$ 0.096 & 25.371 $\pm$ 5.902 \\
+CPA & 0.630 $\pm$ 0.218 & 0.249 $\pm$ 0.139 & 4.315 $\pm$ 3.612 \\
+scGen & 0.506 $\pm$ 0.363 & 0.296 $\pm$ 0.134 & \textbf{3.578 $\pm$ 2.931} \\
+SpatialProp & 0.473 $\pm$ 0.285 & 0.138 $\pm$ 0.083 & 16.660 $\pm$ 4.242 \\
+MintFlow & 0.660 $\pm$ 0.283 & 0.267 $\pm$ 0.154 & 23.967 $\pm$ 4.852 \\
+cellina (ablated) & 0.740 $\pm$ 0.225 & 0.334 $\pm$ 0.132 & 4.348 $\pm$ 3.732 \\
+cellina (gat) & \textbf{0.855 $\pm$ 0.141} & \textbf{0.449 $\pm$ 0.152} & 4.532 $\pm$ 3.633 \\
+cellina & 0.834 $\pm$ 0.158 & 0.389 $\pm$ 0.134 & 4.604 $\pm$ 3.618 \\
 \bottomrule
 \end{tabular}
 \end{table}
