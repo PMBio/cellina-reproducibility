@@ -76,7 +76,13 @@ RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_data():
-    from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
+    try:
+        from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
+        import cellina as _pkg
+    except ImportError:
+        from cellina_graph._spatial_utils import spatial_neighbors
+        import cellina_graph as _pkg
+    log(f"Using {_pkg.__name__} {_pkg.__version__}")
 
     set_seed(0)
 
