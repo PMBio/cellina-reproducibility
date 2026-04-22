@@ -17,14 +17,14 @@ MODEL_ARGS = {
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
-    "max_epochs": 2, #100,
+    "max_epochs": 100,
     "batch_size": 256,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
     "early_stopping_patience": 10,
     "early_stopping_monitor": "vae_loss_validation",
     "enable_checkpointing": True,
-    "devices": [1],  # devices left as default; the user or environment should override if needed
+    "devices": [0],  # devices left as default; the user or environment should override if needed
 }
 
 # Additional plan kwargs sometimes passed to model.train; include a reasonable default
@@ -37,3 +37,4 @@ PLAN_KWARGS = {
 # Enable counterfactual behaviour by default for Cellina
 DO_COUNTERFACTUAL = True
 N_NEIGHBORS_PER_SEED = 20  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
+N_NEIGHBORS_GRAPH = 50 # number of neighbors to compute adjacency matrix
