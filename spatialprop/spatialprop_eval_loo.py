@@ -23,10 +23,10 @@ from spatial_gnn.utils.dataset_utils import (
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
+DATASET_NAME = "crc"  # Options: ['crc', 'merfish']
 
-CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
-CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+CRC_BASE_PATH = "/data2/a330d/datasets/crc/raw_zenodo"
+CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 CRC_CELLTYPES = [
     "Endothelial",
     "Epithelial",
@@ -50,20 +50,22 @@ SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
 CELLTYPES = CRC_CELLTYPES if DATASET_NAME == "crc" else MERFISH_CELLTYPES
 DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
 
+node_pert = True
 top_n = 50
 min_cells = 50
-batch_size = 512
+batch_size = 1024
 labels_key = DATA_ARGS.get('labels_key')
 domains_key = DATA_ARGS.get('domains_key')
 n_top_genes = DATA_ARGS.get('n_top_genes')
-top_n_perturb = n_top_genes
+top_n_perturb = n_top_genes if not node_pert else 200
 device = "cuda:1" if torch.cuda.is_available() else "cpu"
 n_neighbors = DATA_ARGS.get('n_neighbors')
 control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one control domain for simplicity
 holdout_domains = DATA_ARGS.get('holdout_domains')
-out_dir = "/data/a330d/tmp/"
-model_base_path = '/data/a330d/projects/cellina-reproducibility/spatialprop'
-results_csv_path = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}.csv'
+out_dir = "/data2/a330d/tmp/"
+model_base_path = '.'
+results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
+results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'
 
 
 def predict_for_holdout(
@@ -183,7 +185,7 @@ def main():
                 )
 
                 # 5. Run GNN inference restricted to holdout cell type
-                trained_model_path = f'{model_base_path}/output/{exp_name}/{slide_id}_{holdout_ct}_loo_expression_2hop_2augment_expression_none/weightedl1_1en03/model.pth'            
+                trained_model_path = f'{model_base_path}/output/{exp_name}/{slide_id}_{holdout_ct}_loo_expression_2hop_2augment_expression_none/weightedl1_1en03/model.pth'  
                 adata_result = predict_for_holdout(
                     perturbed_path,
                     trained_model_path,
@@ -193,7 +195,6 @@ def main():
                     device=device,
                     batch_size=batch_size,
                 )
-
                 
                 # 6. Compute eval stats
                 mask_ref = (
@@ -253,7 +254,7 @@ def main():
                     )
             
             # Remove spatialprop-generated data files
-            # clean_all_dirs()
+            clean_all_dirs()
 
     df_results = pd.DataFrame(results)
     df_results.to_csv(f"{results_csv_path}", index=False)
