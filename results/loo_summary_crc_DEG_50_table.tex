@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\caption{Leave-one-celltype-out performance (top 50 DEGs). Mean $\pm$ std across slides. Best per metric in \textbf{bold}.}
+\label{tab:loo_summary_crc}
+\begin{tabular}{lccc}
+\toprule
+ & Pearson $\uparrow$ & Precision $\uparrow$ & E-dist (local) $\downarrow$ \\
+\midrule
+mean shift & 0.508 $\pm$ 0.255 & 0.180 $\pm$ 0.128 & 15.505 $\pm$ 4.520 \\
+CPA & 0.680 $\pm$ 0.191 & 0.223 $\pm$ 0.188 & 2.684 $\pm$ 2.109 \\
+scGen & 0.500 $\pm$ 0.384 & 0.216 $\pm$ 0.203 & \textbf{2.600 $\pm$ 1.742} \\
+SpatialProp & 0.384 $\pm$ 0.344 & 0.082 $\pm$ 0.152 & 9.446 $\pm$ 4.173 \\
+MintFlow & 0.659 $\pm$ 0.318 & 0.258 $\pm$ 0.213 & 15.132 $\pm$ 2.062 \\
+cellina (ablated) & 0.722 $\pm$ 0.242 & 0.293 $\pm$ 0.203 & 2.744 $\pm$ 2.218 \\
+cellina (gat) & \textbf{0.886 $\pm$ 0.093} & \textbf{0.409 $\pm$ 0.201} & 2.819 $\pm$ 2.101 \\
+cellina & 0.847 $\pm$ 0.157 & 0.369 $\pm$ 0.197 & 3.031 $\pm$ 2.818 \\
+\bottomrule
+\end{tabular}
+\end{table}
