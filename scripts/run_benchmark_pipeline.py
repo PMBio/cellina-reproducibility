@@ -9,6 +9,7 @@ from benchmark_pipeline import (
     run_cellina_model,
     run_scanvi_model,
     run_scviva_model,
+    run_cellina_mmd_model,
     plot_results_table
 )
 import scvi
@@ -16,11 +17,12 @@ from scvi.train._callbacks import SaveCheckpoint
 import torch
 
 METHODS = {
-    #"SCVI": run_scvi_model,
-    #"SCANVI": run_scanvi_model,
-    #"scVIVA": run_scviva_model,
     "CELLINA": run_cellina_model,
-    # "PCA": run_pca_baseline,
+    "CELLINA-MMD": run_cellina_mmd_model,
+    "SCVI": run_scvi_model,
+    "SCANVI": run_scanvi_model,
+    "scVIVA": run_scviva_model,
+    "PCA": run_pca_baseline,
     # "SIMVI": run_simvi_in_subprocess,
 }
 
@@ -153,7 +155,7 @@ class BenchmarkPipelineRunner:
             if not os.path.exists(dirpath):
                 os.makedirs(dirpath)
             
-            if name in ['SIMVI', 'scVIVA', 'SCVI', 'SCANVI', 'CELLINA']:
+            if name in ['SIMVI', 'scVIVA', 'SCVI', 'SCANVI', 'CELLINA', 'CELLINA-MMD']:
                 model_kwargs = {'n_hidden': self.n_hidden}
             else:
                 model_kwargs = {}

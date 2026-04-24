@@ -30,7 +30,10 @@ OBSM_KEYS = [
     'Cellina_Spatial', 
     'Cellina_Shifted',
     'SIMVI_Intrinsic', 
-    'SIMVI_Spatial'
+    'SIMVI_Spatial',
+    'Cellina_MMD_Basal',
+    'Cellina_MMD_Spatial',
+    'Cellina_MMD_Shifted'
     ]
 
 def split_by_sample(
@@ -196,7 +199,7 @@ def run_scvi_model(
                                  max_epochs=max_epochs, 
                                  **train_kwargs)
 
-    adata.obsm["scVI"] = scvi_model.get_latent_representation()
+    adata.obsm["scVI"] = scvi_model.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)
     
 
@@ -244,7 +247,7 @@ def run_cellina_model(
             lambda: model.train(
                 max_epochs=max_epochs,
                 plan_kwargs={
-                    'lr': 1e-4,
+                    'lr': 1e-3,
                     'normalize_losses': True,
                 },
                 datasplitter_kwargs=data_splitter_kwargs,
@@ -262,7 +265,7 @@ def run_cellina_model(
         model.train(
             max_epochs=max_epochs,
             plan_kwargs={
-                'lr': 1e-4,
+                'lr': 1e-3,
                 'normalize_losses': True,
             },
             datasplitter_kwargs=data_splitter_kwargs,
@@ -272,11 +275,95 @@ def run_cellina_model(
     basal_key = f"Cellina_Basal" if not save_lambda_in_key else f"Cellina_Basal_{classifier_lambda}_{discriminator_lambda}"
     spatial_key = f"Cellina_Spatial" if not save_lambda_in_key else f"Cellina_Spatial_{classifier_lambda}_{discriminator_lambda}"
     shifted_key = f"Cellina_Shifted" if not save_lambda_in_key else f"Cellina_Shifted_{classifier_lambda}_{discriminator_lambda}"
-    adata.obsm[basal_key] = model.get_latent_representation(latent_key='z')
-    adata.obsm[spatial_key] = model.get_latent_representation(latent_key='s')
-    adata.obsm[shifted_key] = model.get_latent_representation()
+    adata.obsm[basal_key] = model.get_latent_representation(latent_key='z', batch_size=batch_size)
+    adata.obsm[spatial_key] = model.get_latent_representation(latent_key='s', batch_size=batch_size)
+    adata.obsm[shifted_key] = model.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)       
-        
+
+
+def run_cellina_mmd_model(
+    adata,
+    batch_key,
+    sample_key,
+    celltype_key, # NOTE
+    niche_key, # NOTE
+    output_path,
+    data_splitter_kwargs,
+    n_layers=2,
+    n_latent=30,
+    max_epochs=None, # NOTE merge into model_kwargs
+    K_NN=20, # NOTE
+    model_kwargs={},
+    train_kwargs={},
+    batch_size=256,
+    classifier_lambda=1.0,
+    discriminator_lambda=1.0,
+    save_lambda_in_key=False,
+    profiler=True,
+    dataset_name="",
+    dataset_path="",
+):
+    classifier_lambda = 0.0
+    discriminator_lambda = 0.0
+    mmd_lambda = 1.0
+    supervised = False
+    print(f"Running Cellina MMD with classifier_lambda={classifier_lambda}, discriminator_lambda={discriminator_lambda}, mmd_lambda={mmd_lambda}")
+    CellinaModel.setup_anndata(adata,
+                           batch_key=batch_key,
+                           labels_key=celltype_key, 
+                           domains_key=niche_key, 
+                           spatial_obsm_key="spatial_x",
+                           layer='counts')
+    model = CellinaModel(
+            adata, n_latent=n_latent,
+            n_layers=n_layers,
+            classifier_lambda=classifier_lambda,
+            discriminator_lambda=discriminator_lambda,
+            condition_on_intrinsic=False,
+            gene_likelihood="nb",
+            mmd_lambda=mmd_lambda,
+            supervised=supervised,
+            **model_kwargs
+        )
+    
+    if profiler:
+        profile_training(
+            lambda: model.train(
+                max_epochs=max_epochs,
+                plan_kwargs={
+                    'lr': 1e-4,
+                    'normalize_losses': True,
+                },
+                datasplitter_kwargs=data_splitter_kwargs,
+                batch_size=batch_size,
+                **train_kwargs,
+            ),
+            model_name="cellina-mmd",
+            num_epochs=max_epochs,
+            dataset_name=dataset_name,
+            dataset_size=adata.n_obs,
+            dataset_path=dataset_path,
+            csv_path=PROFILER_CSV_PATH
+        )
+    else:
+        model.train(
+            max_epochs=max_epochs,
+            plan_kwargs={
+                'lr': 1e-4,
+                'normalize_losses': True,
+            },
+            datasplitter_kwargs=data_splitter_kwargs,
+            batch_size=batch_size,
+            **train_kwargs,
+        )
+    basal_key = "Cellina_MMD_Basal"
+    spatial_key = "Cellina_MMD_Spatial"
+    shifted_key = "Cellina_MMD_Shifted"
+    adata.obsm[basal_key] = model.get_latent_representation(latent_key='z', batch_size=batch_size)
+    adata.obsm[spatial_key] = model.get_latent_representation(latent_key='s', batch_size=batch_size)
+    adata.obsm[shifted_key] = model.get_latent_representation(batch_size=batch_size)
+    adata.write(output_path)       
+
 
 def run_pca_baseline(
     adata,
@@ -361,7 +448,7 @@ def run_scanvi_model(
     else:
         scanvi_model.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
     # NOTE: Required for scVIVA!!!
-    adata.obsm["SCANVI"] = scanvi_model.get_latent_representation()
+    adata.obsm["SCANVI"] = scanvi_model.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)
 
 def run_scviva_model(
@@ -419,7 +506,7 @@ def run_scviva_model(
     else:
         nichevae.train(datasplitter_kwargs=data_splitter_kwargs, batch_size=batch_size, **train_kwargs)
 
-    adata.obsm["scVIVA"] = nichevae.get_latent_representation()
+    adata.obsm["scVIVA"] = nichevae.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)
 
 def run_simvi_in_subprocess(
