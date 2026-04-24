@@ -1,4 +1,0 @@
-Embedding,Isolated labels,KMeans NMI,KMeans ARI,Silhouette label,cLISI,Silhouette batch,iLISI,KBET,Graph connectivity,PCR comparison,Batch correction,Cell-type Total,Total
-mintflow_basal,0.0,2.220446049250313e-16,0.0,0.0,0.0,0.0,1.0,,1.0,0.0,0.5,4.4408920985006264e-17,0.20000000000000004
-mintflow_spatial,1.0,0.0,0.0,1.0,0.0,1.0,0.0,,0.0,0.0,0.25,0.4,0.33999999999999997
-Metric Type,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Batch correction,Batch correction,Batch correction,Batch correction,Batch correction,Aggregate score,Aggregate score,Aggregate score
