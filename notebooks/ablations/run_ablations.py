@@ -65,7 +65,7 @@ LABELS_KEY  = "coarse_type"
 DOMAINS_KEY = "typ_clean"
 BATCH_KEY   = "sid"
 
-LAMBDA_RANGE = [0, 1e-9, 1e-7, 1e-5, 1e-3, 0.1, 1, 10, 100]
+LAMBDA_RANGE = [0, 1e-7, 1e-5, 1e-3, 0.1, 1, 10, 100, 1e3]
 SEEDS        = list(range(5))
 N_MC_SAMPLES = 500
 
@@ -79,9 +79,11 @@ def load_data():
     try:
         from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
         import cellina as _pkg
+        max_neighbours = 200
     except ImportError:
         from cellina_graph._spatial_utils import spatial_neighbors
         import cellina_graph as _pkg
+        max_neighbours = 50
     log(f"Using {_pkg.__name__} {_pkg.__version__}")
 
     set_seed(0)
@@ -89,13 +91,14 @@ def load_data():
     adata = load_crc_slide(
         slide_id=SLIDE_ID,
         data_dir=DATA_DIR,
-        n_top_genes=3000,
+        n_top_genes=2000,
         labels_key=LABELS_KEY,
         domains_key=DOMAINS_KEY,
     )
 
-    spatial_neighbors(adata, bandwidth=100 / 0.12028, max_neighbours=200, standardize=False)
-    compute_spatial_features(adata)
+    spatial_neighbors(adata, bandwidth=100 / 0.12028, max_neighbours=max_neighbours, standardize=False)
+    if _pkg.__name__ == "cellina":
+        compute_spatial_features(adata)
 
     # Random 10% holdout
     n_cells  = adata.n_obs
