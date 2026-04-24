@@ -16,7 +16,7 @@ MODEL_ARGS = {
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
     "max_epochs": 100,
-    "batch_size": 2048, #4096,
+    "batch_size": 2048,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
     "early_stopping_patience": 10,

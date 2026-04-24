@@ -24,7 +24,7 @@ TRAIN_ARGS = {
     "early_stopping_patience": 10,
     "early_stopping_monitor": "vae_loss_validation",
     "enable_checkpointing": True,
-    "devices": [1],  # devices left as default; the user or environment should override if needed
+    "devices": [0],  # devices left as default; the user or environment should override if needed
 }
 
 # Additional plan kwargs sometimes passed to model.train; include a reasonable default
@@ -37,3 +37,4 @@ PLAN_KWARGS = {
 # Enable counterfactual behaviour by default for Cellina
 DO_COUNTERFACTUAL = True
 N_NEIGHBORS_PER_SEED = 20  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
+N_NEIGHBORS_GRAPH = 50 # number of neighbors to compute adjacency matrix

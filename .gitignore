@@ -209,3 +209,5 @@ __marimo__/
 # Local dir for trained models
 scvi_log/
 notebooks/models
+spatialprop/data/
+spatialprop/output/

@@ -17,7 +17,6 @@ import subprocess
 import shlex
 import glob
 from pathlib import Path
-import os
 import time
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -26,8 +25,9 @@ LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
 
 # Populate these lists manually
-PATHS = [
-    # Example: #"/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
+DATASET_NAME = "crc"  # or "merfish"
+
+CRC_PATHS = [
     "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
@@ -36,27 +36,38 @@ PATHS = [
     "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
 
-HOLDOUTS = [
-    # Example: "Epithelial",
+CRC_HOLDOUTS = [
     "Endothelial",
     "Epithelial",
     "Fibroblast",
     "Myeloid",
     "T_cell",
-    #"B_cell"
 ]
-# TODO: Run eval for everything again because of correlation norm change
+
+MERFISH_PATHS = [
+    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad",    
+    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad",
+    "/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad",
+]
+
+MERFISH_HOLDOUTS = [
+    'glutamatergic neuron',
+    #'oligodendrocyte',
+    #'astrocyte',
+    #'GABAergic neuron',
+    #'endothelial cell',
+]
+
+PATHS = CRC_PATHS if DATASET_NAME == "crc" else MERFISH_PATHS
+HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
+
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina"}
     {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina"},
-    #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina", "extra_args": ["--use_recon","--use_cf"]},
-    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
-    #{"class": "concert", "name": "concert"},
+    {"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
+    {"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
     {"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--use_cf"},
     {"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
 ]
 
@@ -82,8 +93,9 @@ def expand_paths(path_patterns):
     return paths
 
 
-def make_cmd(adata_path, holdout, model_class, model_name, extra_args, model_extra_args=None):
+def make_cmd(adata_path, dataset_name, holdout, model_class, model_name, extra_args, model_extra_args=None):
     cmd = [PY, str(EVAL_SCRIPT),
+           "--dataset_name", str(dataset_name),
            "--adata_path", str(adata_path),
            "--holdout_celltype", str(holdout),
            "--model_class", str(model_class),
@@ -210,7 +222,7 @@ def main():
                 model_name = model_entry.get('name') or f"{model_class}_{sid}_{holdout}"
                 model_extra = model_entry.get('extra_args', None)
 
-                cmd = make_cmd(p, holdout, model_class, model_name, args.extra_args, model_extra)
+                cmd = make_cmd(p, DATASET_NAME, holdout, model_class, model_name, args.extra_args, model_extra)
                 log_path = LOG_ROOT / sid / holdout / f"{model_class}.eval.log"
                 all_cmds.append((cmd, log_path))
 

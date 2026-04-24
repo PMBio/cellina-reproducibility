@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import warnings
 import numpy as np
-import scipy.sparse as sp
 import pandas as pd
 import scanpy as sc
 import torch
@@ -50,7 +48,7 @@ def load_crc_slide(
     data_dir: str = "../../data/crc_wt_cosmx",
     n_top_genes: int = 3000,
     labels_key: str = "coarse_type",
-    domains_key: str = "typ_clean",
+    domains_key: str = "typ",
 ):
     """Load and preprocess a CRC CosMx slide.
 
@@ -67,16 +65,10 @@ def load_crc_slide(
     domains_key
         obs column name for domain/tissue labels.
 
-    Details: 
-    --------
-    The CRC 18k CosMx dataset:
-    https://www.biorxiv.org/content/10.1101/2025.06.23.660674v1.abstract
-
     Returns
     -------
     Preprocessed AnnData with:
     - ``obs[labels_key]``: coarse cell-type categories
-    - ``obs['typ_clean']``: clean domain labels (``"REF"``, ``"CRC"``, ``"TVA"``)
     - ``obsm['spatial']``: spatial coordinates
     - ``layers['counts']``: raw counts
     - HVG-filtered genes
@@ -88,7 +80,6 @@ def load_crc_slide(
     adata.obs_names_make_unique()
 
     adata.obs[labels_key] = adata.obs["ist"].map(_LABEL_TO_COARSE)
-    adata.obs["typ_clean"] = adata.obs["typ"].str.extract(r"(REF|TVA|CRC)", expand=False)
 
     adata = adata[~adata.obs[domains_key].isna()].copy()
     adata = adata[~adata.obs[labels_key].isna()].copy()
@@ -128,13 +119,6 @@ def load_merfish_brain(
         obs column name for cell-type labels.
     domains_key
         obs column name for brain-region/domain labels.
-        
-        
-    Details:
-    --------
-    The MERFISH dataset contains multiple brain sections:
-    https://doi.brainimagelibrary.org/doi/10.35077/act-bag from https://www.nature.com/articles/s41586-023-06808-9#data-availability
-    Where resolution is 0.109 nanometers per pixel, so 10 microns ≈ 92 pixels.
 
     Returns
     -------
@@ -163,38 +147,12 @@ def load_merfish_brain(
 # ---------------------------------------------------------------------------
 # Pseudobulk logFC
 # ---------------------------------------------------------------------------
-
-def _get_domain_labels(adata, domains_key: str) -> tuple[str, list[str]]:
-    """Infer the REF and CRC domain labels from adata.obs[domains_key].
-
-    Scans the unique values for entries containing 'REF' and 'CRC' so the
-    exact label format (e.g. '242_REF') never needs to be hardcoded.
-
-    Returns a single REF label and a list of CRC labels (warns if >1).
-    """
-    unique = adata.obs[domains_key].astype(str).unique()
-    ref_matches = [d for d in unique if "REF" in d]
-    crc_matches = [d for d in unique if "CRC" in d]
-    if len(ref_matches) != 1:
-        raise ValueError(
-            f"Expected exactly 1 domain containing 'REF', found: {ref_matches}"
-        )
-    if len(crc_matches) == 0:
-        raise ValueError(
-            f"Expected at least 1 domain containing 'CRC', found none"
-        )
-    if len(crc_matches) > 1:
-        warnings.warn(
-            f"Found multiple CRC domains: {crc_matches}. Combining all for logFC.",
-            stacklevel=2,
-        )
-    return ref_matches[0], crc_matches
-
-
 def compute_pseudobulk_logfc(
     adata,
     labels_key: str = "coarse_type",
     domains_key: str = "typ",
+    control_domain: str = "REF",
+    holdout_domain: str = "CRC",
 ) -> tuple:
     """Pseudobulk sum → normalize → log1p → logFC (CRC − REF) per cell type.
 
@@ -219,8 +177,6 @@ def compute_pseudobulk_logfc(
     """
     import decoupler as dc
 
-    ref_label, crc_labels = _get_domain_labels(adata, domains_key)
-
     pdata = dc.pp.pseudobulk(
         adata=adata,
         sample_col=domains_key,
@@ -234,21 +190,31 @@ def compute_pseudobulk_logfc(
     cell_types = [
         ct for ct in pdata.obs[labels_key].unique()
         if (
-            ((pdata.obs[domains_key] == ref_label) & (pdata.obs[labels_key] == ct)).any()
-            and (pdata.obs[domains_key].isin(crc_labels) & (pdata.obs[labels_key] == ct)).any()
+            ((pdata.obs[domains_key] == control_domain) & (pdata.obs[labels_key] == ct)).any()
+            and ((pdata.obs[domains_key] == holdout_domain) & (pdata.obs[labels_key] == ct)).any()
         )
     ]
 
-    _ct_rows = []
-    for ct in cell_types:
-        _crc = pdata[pdata.obs[domains_key].isin(crc_labels) & (pdata.obs[labels_key] == ct)].X
-        _ref = pdata[(pdata.obs[domains_key] == ref_label)   & (pdata.obs[labels_key] == ct)].X
-        _crc_m = np.asarray(_crc.mean(axis=0)).flatten() if sp.issparse(_crc) else _crc.mean(axis=0).flatten()
-        _ref_m = np.asarray(_ref.mean(axis=0)).flatten() if sp.issparse(_ref) else _ref.mean(axis=0).flatten()
-        _ct_rows.append(pd.Series(_crc_m - _ref_m, index=pdata.var_names, name=ct))
-    domain_logfc_df = pd.concat(_ct_rows, axis=1).T
+    domain_logfc_df = pd.concat(
+        [
+            pd.Series(
+                (
+                    pdata[
+                        (pdata.obs[domains_key] == holdout_domain) & (pdata.obs[labels_key] == ct)
+                    ].X
+                    - pdata[
+                        (pdata.obs[domains_key] == control_domain) & (pdata.obs[labels_key] == ct)
+                    ].X
+                ).flatten(),
+                index=pdata.var_names,
+                name=ct,
+            )
+            for ct in cell_types
+        ],
+        axis=1,
+    ).T
 
-    return domain_logfc_df, ref_label, crc_labels
+    return domain_logfc_df
 
 
 # ---------------------------------------------------------------------------

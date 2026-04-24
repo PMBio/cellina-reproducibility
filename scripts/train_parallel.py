@@ -28,33 +28,53 @@ PY = sys.executable
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
-PATHS = [
-    # Example: "/data2/a330d/datasets/crc/raw_zenodo/crc_222.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
+DATASET_NAME = "merfish"  # or "merfish"
+
+CRC_PATHS = [
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
     "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
+    #"/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
 ]
-HOLDOUTS = [
-    # Example: "Epithelial",
-    "Endothelial",
-    "Epithelial",
+
+CRC_HOLDOUTS = [
+    #"Endothelial",
+    #"Epithelial",
     "Fibroblast",
-    "Myeloid",
-    "T_cell",
-    #"B_cell"
+    #"Myeloid",
+    #"T_cell",
 ]
+
+MERFISH_PATHS = [
+    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad",    
+    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad",
+    "/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad",
+]
+
+MERFISH_HOLDOUTS = [
+    'glutamatergic neuron',
+    #'oligodendrocyte',
+    #'astrocyte',
+    #'GABAergic neuron',
+    #'endothelial cell',
+]
+
+PATHS = CRC_PATHS if DATASET_NAME == "crc" else MERFISH_PATHS
+HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
+
+
 # TODO: Run cellina again after counterfactual fix merge
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    #{"class": "cellina", "name": "cellina"},
+    {"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
     #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
-    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--inference_only"},
+    #{"class": "cellina_graph", "name": "cellina-graph"},
     #{"class": "concert", "name": "concert"},
+    {"class": "scgen", "name": "scgen"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-ablated"},
@@ -85,8 +105,9 @@ def expand_paths(path_patterns):
     return paths
 
 
-def make_cmd(adata_path, holdout, model_class, model_name, extra_args, model_extra_args=None):
+def make_cmd(adata_path, dataset_name, holdout, model_class, model_name, extra_args, model_extra_args=None):
     cmd = [PY, str(TRAIN_SCRIPT),
+           "--dataset_name", str(dataset_name),
            "--adata_path", str(adata_path),
            "--holdout_celltype", str(holdout),
            "--model_class", str(model_class),
@@ -207,7 +228,7 @@ def main():
                     model_name = args.model_name_template.format(model_class=model_class, sid=sid, holdout=holdout)
                     model_extra = None
 
-                cmd = make_cmd(p, holdout, model_class, model_name, args.extra_args, model_extra)
+                cmd = make_cmd(p, DATASET_NAME, holdout, model_class, model_name, args.extra_args, model_extra)
                 # If the model class is 'cpa', run the command with the CPA env python directly
                 if model_class == 'cpa':
                     cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python"

@@ -1,6 +1,0 @@
-holdout_celltype,pearson,spearman,precision,model_name,sid,edistance_cells,edistance_latents
-Fibroblast,0.5307810346166016,0.4774549819927971,0.12,mintflow-normalized,210,0,0
-Endothelial,0.936959937993022,0.7512605042016807,0.22,mintflow-normalized,210,0,0
-Myeloid,0.6563285480913216,0.3974549819927971,0.14,mintflow-normalized,210,0,0
-T_cell,0.7593992376888555,0.7201440576230491,0.24,mintflow-normalized,210,0,0
-Epithelial,0.7146932093223568,0.6524369747899159,0.04,mintflow-normalized,210,0,0
