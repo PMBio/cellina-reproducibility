@@ -211,3 +211,14 @@ scvi_log/
 notebooks/models
 spatialprop/data/
 spatialprop/output/
+*.csv
+*.h5ad
+*.png
+*.pkl
+*.pt
+*.pdf
+*.pth
+*.json
+*.svg
+output/
+notebooks/neighb_perts/results/
