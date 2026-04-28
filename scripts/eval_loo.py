@@ -19,7 +19,7 @@ import numpy as np
 import scanpy as sc
 
 DEFAULT_SEED = 0
-N_DEG = 200
+N_DEG = 50
 CRC_INFERENCE_BASE_DIR = "/data2/a330d/datasets/crc"
 MERFISH_INFERENCE_BASE_DIR = "/data2/a330d/datasets"
 OUT_DIR_BASE_PATH = "/data2/a330d/datasets"
