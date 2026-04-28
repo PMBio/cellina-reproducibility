@@ -122,6 +122,19 @@ def build_perturbation_dict(ct_logfc_df, pw_dfs=None, filter_by_pathway=True,
     return result
 
 
+def build_pw_perturbation(logfc_series, pw_dfs, logfc_threshold=0.5):
+    """Progeny weights for globally-DE genes, as flat {gene: weight} dict.
+
+    Pass to make_neighbor_perturbation without groupby for a uniform perturbation
+    across all cells.
+    """
+    de_genes = set(logfc_series[logfc_series.abs() > logfc_threshold].index)
+    parts = [pw.set_index('target')['weight'].loc[lambda s: s.index.isin(de_genes)]
+             for pw in pw_dfs]
+    parts = [p for p in parts if not p.empty]
+    return pd.concat(parts).groupby(level=0).mean().to_dict() if parts else {}
+
+
 def cf_logfc(cf_expr, ctrl_expr):
     """log2(mean CF / mean control + 1) per gene, 1e4-normalised."""
     ctrl_n = ctrl_expr / (ctrl_expr.sum(1, keepdims=True) + 1e-9) * 1e4
