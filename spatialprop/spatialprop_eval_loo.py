@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 import scanpy as sc
 import torch
 
@@ -23,7 +24,7 @@ from spatial_gnn.utils.dataset_utils import (
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-DATASET_NAME = "crc"  # Options: ['crc', 'merfish']
+DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
 
 CRC_BASE_PATH = "/data2/a330d/datasets/crc/raw_zenodo"
 CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
@@ -50,7 +51,7 @@ SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
 CELLTYPES = CRC_CELLTYPES if DATASET_NAME == "crc" else MERFISH_CELLTYPES
 DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
 
-node_pert = True
+node_pert = False
 top_n = 50
 min_cells = 50
 batch_size = 1024
@@ -62,7 +63,7 @@ device = "cuda:1" if torch.cuda.is_available() else "cpu"
 n_neighbors = DATA_ARGS.get('n_neighbors')
 control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one control domain for simplicity
 holdout_domains = DATA_ARGS.get('holdout_domains')
-out_dir = "/data2/a330d/tmp/"
+out_dir = "/data/a330d/tmp/"
 model_base_path = '.'
 results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
 results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'
@@ -145,6 +146,9 @@ def main():
         sc.pp.log1p(adata)
 
         for holdout_ct in CELLTYPES:
+            # Set holdout set - cells having holdout_ct and holdout_domains
+            mask_holdout = (adata.obs[labels_key] == holdout_ct) & (adata.obs[domains_key].isin(holdout_domains))
+            adata.obs['is_holdout'] = mask_holdout
             print(f"\n{'='*60}")
             print(f"Holdout cell type: {holdout_ct}")
             print(f"{'='*60}")
@@ -226,10 +230,13 @@ def main():
 
                     pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
                     rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg)
-                    edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg)
-                    edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, local=True)
-                    mix_idx = mixing_index(observed=target, predicted=counterfactual)
+                    edist_global = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4)
+                    edist_local = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True)
+                    edist_pca_log = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True, use_pca=True)
+                    edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True, use_pca=True, log1p=False)
+                    mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=1e4)
                     _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
+                    _, _, _, dir_match_gt, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="gt_topk")
 
                     results.append(
                         dict(
@@ -245,10 +252,13 @@ def main():
                             precision=prec,
                             direction_match=dir_match,
                             direction_match_k=dir_match_k,
+                            direction_match_gt=dir_match_gt,
                             mixing_index=mix_idx,
                             edistance_global=edist_global,
                             edistance_local=edist_local,
-                            rmse=rmse,
+                            edistance_pca_log=edist_pca_log,
+                            edistance_pca=edist_pca,
+                            rmse=np.log10(rmse),
                             top_n_perturb=top_n_perturb,
                         )
                     )

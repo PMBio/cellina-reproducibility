@@ -2,34 +2,34 @@
 \centering
 \caption{Leave-one-celltype-out performance (top 50 DEGs). For each slide we first average over the held-out cell types, then report mean $\pm$ std across 3 slides. Best per metric in \textbf{bold}.}
 \label{tab:loo_summary_merfish}
-\begin{tabular}{llccc}
+\begin{tabular}{llcccc}
 \toprule
-Holdout \\ perturbation & Method & Pearson $\uparrow$ & Precision $\uparrow$ & E-dist (local) $\downarrow$ \\
+Holdout \\ perturbation & Method & Spearman $\uparrow$ & Pearson $\uparrow$ & Signed Precision $\uparrow$ & RMSE $\downarrow$ \\
 \toprule
 
-\multirow[c]{10}{*}{Fiber-tracts} & mean shift & 0.361 $\pm$ 0.239 & 0.071 $\pm$ 0.069 & 10.322 $\pm$ 3.513 \\
- & CPA & 0.798 $\pm$ 0.150 & 0.319 $\pm$ 0.128 & 2.520 $\pm$ 2.521 \\
- & scGen & 0.716 $\pm$ 0.201 & 0.151 $\pm$ 0.089 & 2.994 $\pm$ 2.519 \\
- & SpatialProp & 0.640 $\pm$ 0.200 & 0.087 $\pm$ 0.074 & 10.415 $\pm$ 5.815 \\
- & MintFlow & 0.780 $\pm$ 0.180 & 0.220 $\pm$ 0.157 & 15.814 $\pm$ 5.674 \\
- & cellina (ablated) & 0.797 $\pm$ 0.141 & 0.292 $\pm$ 0.143 & 2.666 $\pm$ 2.787 \\
- & cellina-GAT & 0.806 $\pm$ 0.158 & 0.401 $\pm$ 0.178 & 2.570 $\pm$ 2.421 \\
- & cellina & \textbf{0.826 $\pm$ 0.155} & \textbf{0.461 $\pm$ 0.208} & \textbf{2.274 $\pm$ 2.156} \\
- & cellina$_{node-pert=200}$ & 0.807 $\pm$ 0.151 & 0.305 $\pm$ 0.181 & 2.594 $\pm$ 2.241 \\
- & SpatialProp$_{node-pert=200}$ & 0.659 $\pm$ 0.182 & 0.077 $\pm$ 0.068 & 9.179 $\pm$ 4.964 \\
+\multirow[c]{10}{*}{Fiber-tracts} & mean shift & 0.35 $\pm$ 0.27 & 0.36 $\pm$ 0.24 & 0.07 $\pm$ 0.07 & 3.33 $\pm$ 0.30 \\
+ & CPA & 0.58 $\pm$ 0.21 & 0.80 $\pm$ 0.15 & 0.31 $\pm$ 0.13 & 3.64 $\pm$ 0.36 \\
+ & scGen & 0.50 $\pm$ 0.23 & 0.72 $\pm$ 0.20 & 0.15 $\pm$ 0.09 & 3.53 $\pm$ 0.36 \\
+ & SpatialProp & 0.47 $\pm$ 0.20 & 0.64 $\pm$ 0.20 & 0.09 $\pm$ 0.07 & \textbf{3.27 $\pm$ 0.43} \\
+ & MintFlow & 0.54 $\pm$ 0.23 & 0.78 $\pm$ 0.18 & 0.21 $\pm$ 0.16 & 3.43 $\pm$ 0.37 \\
+ & cellina (ablated) & 0.58 $\pm$ 0.22 & 0.80 $\pm$ 0.14 & 0.28 $\pm$ 0.14 & 3.64 $\pm$ 0.34 \\
+ & cellina-GAT & 0.64 $\pm$ 0.15 & 0.81 $\pm$ 0.16 & 0.39 $\pm$ 0.18 & 3.63 $\pm$ 0.37 \\
+ & cellina & \textbf{0.66 $\pm$ 0.21} & \textbf{0.83 $\pm$ 0.15} & \textbf{0.45 $\pm$ 0.21} & 3.63 $\pm$ 0.36 \\
+ & cellina$_{node-pert=200}$ & 0.59 $\pm$ 0.23 & 0.81 $\pm$ 0.15 & 0.29 $\pm$ 0.19 & 3.65 $\pm$ 0.35 \\
+ & SpatialProp$_{node-pert=200}$ & 0.50 $\pm$ 0.19 & 0.66 $\pm$ 0.18 & 0.08 $\pm$ 0.07 & 3.27 $\pm$ 0.40 \\
 \midrule
-\cline{1-5}
-\multirow[c]{10}{*}{Isocortex} & mean shift & 0.575 $\pm$ 0.192 & 0.256 $\pm$ 0.077 & 18.318 $\pm$ 4.657 \\
- & CPA & 0.838 $\pm$ 0.172 & 0.535 $\pm$ 0.137 & 4.818 $\pm$ 3.752 \\
- & scGen & 0.820 $\pm$ 0.143 & 0.268 $\pm$ 0.162 & 5.854 $\pm$ 4.366 \\
- & SpatialProp & 0.746 $\pm$ 0.093 & 0.089 $\pm$ 0.079 & 12.965 $\pm$ 2.176 \\
- & MintFlow & 0.837 $\pm$ 0.165 & 0.369 $\pm$ 0.157 & 17.701 $\pm$ 2.162 \\
- & cellina (ablated) & 0.841 $\pm$ 0.163 & 0.503 $\pm$ 0.139 & 5.124 $\pm$ 4.331 \\
- & cellina-GAT & \textbf{0.889 $\pm$ 0.144} & \textbf{0.657 $\pm$ 0.099} & 4.637 $\pm$ 3.147 \\
- & cellina & 0.858 $\pm$ 0.170 & 0.589 $\pm$ 0.137 & \textbf{4.377 $\pm$ 3.338} \\
- & cellina$_{node-pert=200}$ & 0.787 $\pm$ 0.187 & 0.357 $\pm$ 0.157 & 5.603 $\pm$ 3.845 \\
- & SpatialProp$_{node-pert=200}$ & 0.743 $\pm$ 0.094 & 0.085 $\pm$ 0.080 & 12.000 $\pm$ 2.298 \\
-\cline{1-5}
+\cline{1-6}
+\multirow[c]{10}{*}{Isocortex} & mean shift & 0.59 $\pm$ 0.19 & 0.58 $\pm$ 0.19 & 0.25 $\pm$ 0.08 & 3.56 $\pm$ 0.37 \\
+ & CPA & 0.78 $\pm$ 0.17 & 0.84 $\pm$ 0.17 & 0.53 $\pm$ 0.14 & 3.59 $\pm$ 0.35 \\
+ & scGen & 0.72 $\pm$ 0.18 & 0.82 $\pm$ 0.14 & 0.27 $\pm$ 0.16 & \textbf{3.56 $\pm$ 0.37} \\
+ & SpatialProp & 0.70 $\pm$ 0.12 & 0.75 $\pm$ 0.09 & 0.09 $\pm$ 0.08 & 3.65 $\pm$ 0.38 \\
+ & MintFlow & 0.77 $\pm$ 0.18 & 0.84 $\pm$ 0.16 & 0.37 $\pm$ 0.16 & 3.77 $\pm$ 0.37 \\
+ & cellina (ablated) & 0.79 $\pm$ 0.16 & 0.84 $\pm$ 0.16 & 0.50 $\pm$ 0.14 & 3.63 $\pm$ 0.36 \\
+ & cellina-GAT & \textbf{0.85 $\pm$ 0.11} & \textbf{0.89 $\pm$ 0.14} & \textbf{0.66 $\pm$ 0.10} & 3.56 $\pm$ 0.35 \\
+ & cellina & 0.81 $\pm$ 0.18 & 0.86 $\pm$ 0.17 & 0.59 $\pm$ 0.14 & 3.59 $\pm$ 0.34 \\
+ & cellina$_{node-pert=200}$ & 0.74 $\pm$ 0.20 & 0.79 $\pm$ 0.19 & 0.35 $\pm$ 0.17 & 3.61 $\pm$ 0.36 \\
+ & SpatialProp$_{node-pert=200}$ & 0.70 $\pm$ 0.13 & 0.74 $\pm$ 0.09 & 0.08 $\pm$ 0.08 & 3.64 $\pm$ 0.38 \\
+\cline{1-6}
 \bottomrule
 \end{tabular}
 \end{table}

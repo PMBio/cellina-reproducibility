@@ -19,10 +19,10 @@ import numpy as np
 import scanpy as sc
 
 DEFAULT_SEED = 0
-N_DEG = 200
+N_DEG = 50
 CRC_INFERENCE_BASE_DIR = "/data2/a330d/datasets/crc"
-MERFISH_INFERENCE_BASE_DIR = "/data2/a330d/datasets"
-OUT_DIR_BASE_PATH = "/data2/a330d/datasets"
+MERFISH_INFERENCE_BASE_DIR = "/data/a330d/datasets"
+OUT_DIR_BASE_PATH = "/data/a330d/datasets"
 
 # reuse preprocessing defaults from configs
 sys.path.append('./scripts')
@@ -166,6 +166,7 @@ def main():
     recon_fname = f"{model_name}_recon_x.h5ad"
     recon_path = os.path.join(base_dir, recon_fname)    
     recon, latents = None, None
+    adata_full = adata.copy()
     if model_class != 'baseline':
         recon, latents = load_model_predicted(recon_path)
         adata.uns['recon_x'] = recon
@@ -207,10 +208,13 @@ def main():
         # Compute stats
         pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG)
         rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
-        edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
-        edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K, local=True)
+        edist_global = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K)
+        edist_local = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True)
+        edist_pca_log = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True)
+        edist_pca = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
         mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=COUNTS_PER_K)
         _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG, direction_match_normalize="k")
+        _, _, _, dir_match_gt, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG, direction_match_normalize="gt_topk")
         print("Eval stats computed.")
 
         # Save results json
@@ -229,10 +233,13 @@ def main():
                     'precision': prec,
                     'direction_match': dir_match,
                     'direction_match_k': dir_match_k,
+                    'direction_match_gt': dir_match_gt,
                     'mixing_index': mix_idx,
                     'edistance_global': edist_global,
                     'edistance_local': edist_local,
-                    'rmse': rmse,
+                    'edistance_pca_log': edist_pca_log,
+                    'edistance_pca': edist_pca,
+                    'rmse': np.log10(rmse),
                     }
             stats = {
                 k: float(v) if isinstance(v, np.floating) else v
