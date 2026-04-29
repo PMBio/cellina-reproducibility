@@ -715,6 +715,8 @@ def main():
     # Subset the data - Put in for scgen slide 120, otherwise segmentation fault for (probably) RAM/VRAM reasons
     if (sid == 'crc_120' and mc == 'scgen'):
         adata = subset_adata(adata, proportion=0.3, random_state=0)
+    if (sid == 'crc_210' and mc == 'scgen'):
+        adata = subset_adata(adata, proportion=0.3, random_state=0)
 
     # preprocess using DATA_ARGS
     if dataset_name == 'crc':
