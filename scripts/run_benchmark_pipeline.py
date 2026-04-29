@@ -10,20 +10,21 @@ from benchmark_pipeline import (
     run_scanvi_model,
     run_scviva_model,
     run_cellina_mmd_model,
+    run_simvi,
     plot_results_table
 )
 import scvi
-from scvi.train._callbacks import SaveCheckpoint
+
 import torch
 
 METHODS = {
-    "CELLINA": run_cellina_model,
-    "CELLINA-MMD": run_cellina_mmd_model,
-    "SCVI": run_scvi_model,
-    "SCANVI": run_scanvi_model,
-    "scVIVA": run_scviva_model,
-    "PCA": run_pca_baseline,
-    # "SIMVI": run_simvi_in_subprocess,
+    #"CELLINA": run_cellina_model,
+    #"CELLINA-MMD": run_cellina_mmd_model,
+    #"SCVI": run_scvi_model,
+    #"SCANVI": run_scanvi_model,
+    #"scVIVA": run_scviva_model,
+    #"PCA": run_pca_baseline,
+    "SIMVI": run_simvi,
 }
 
 class BenchmarkPipelineRunner:
@@ -160,16 +161,20 @@ class BenchmarkPipelineRunner:
             else:
                 model_kwargs = {}
             
-            train_kwargs = {
-                    'early_stopping_patience': self.early_stopping_patience,
-                    'early_stopping': True,
-                    'enable_checkpointing':True,
-                    'callbacks':[
-                    SaveCheckpoint(monitor='validation_loss',#"elbo_validation",
-                                   dirpath=dirpath,
-                                   load_best_on_end=True),
-                    ],
-            }
+            if name == "SIMVI":
+                train_kwargs = {}
+            else:
+                from scvi.train._callbacks import SaveCheckpoint
+                train_kwargs = {
+                        'early_stopping_patience': self.early_stopping_patience,
+                        'early_stopping': True,
+                        'enable_checkpointing':True,
+                        'callbacks':[
+                        SaveCheckpoint(monitor='validation_loss',#"elbo_validation",
+                                    dirpath=dirpath,
+                                    load_best_on_end=True),
+                        ],
+                }
             extra_args = {}
             if name == "CELLINA":
                 extra_arg_keys = ['classifier_lambda', 'discriminator_lambda', 'save_lambda_in_key']

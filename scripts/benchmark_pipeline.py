@@ -11,7 +11,6 @@ import json
 
 from typing import Optional
 
-from cellina import CellinaModel
 from anndata import AnnData
 
 import sys
@@ -225,6 +224,7 @@ def run_cellina_model(
     dataset_name="",
     dataset_path="",
 ):
+    from cellina import CellinaModel
     print(f"Running Cellina with classifier_lambda={classifier_lambda}, discriminator_lambda={discriminator_lambda}")
     CellinaModel.setup_anndata(adata,
                            batch_key=batch_key,
@@ -508,6 +508,51 @@ def run_scviva_model(
 
     adata.obsm["scVIVA"] = nichevae.get_latent_representation(batch_size=batch_size)
     adata.write(output_path)
+
+
+def run_simvi(
+    adata,
+    batch_key,
+    sample_key,
+    celltype_key,
+    niche_key,
+    output_path,
+    data_splitter_kwargs,
+    n_layers=2,
+    n_latent=30,
+    max_epochs=None,
+    K_NN=20,
+    model_kwargs={},
+    train_kwargs={},
+    batch_size=256,
+    profiler=True,
+    dataset_name="",
+    dataset_path=""
+    ):
+    from simvi.model import SimVI
+    from pytorch_lightning.utilities.seed import seed_everything
+    
+    seed_everything(0)
+    SimVI.setup_anndata(adata, batch_key=batch_key)
+    n_neighbors = 50
+    edge_index = SimVI.extract_edge_index(adata, n_neighbors=n_neighbors, batch_key=batch_key)
+
+    model = SimVI(adata,
+              kl_weight=1,
+              kl_gatweight=0.01,
+              lam_mi=1000,
+              permutation_rate=0.5,
+              n_spatial=n_latent,
+              n_intrinsic=n_latent)
+    train_loss, val_loss = model.train(edge_index,
+                                        max_epochs=max_epochs,
+                                        batch_size=batch_size,
+                                        use_gpu=True,
+                                        mae_epochs=max_epochs-1)
+    adata.obsm['SIMVI_Intrinsic'] = model.get_latent_representation(edge_index, representation_kind='intrinsic', give_mean=True, batch_size=batch_size)
+    adata.obsm['SIMVI_Spatial'] = model.get_latent_representation(edge_index, representation_kind='interaction', give_mean=True, batch_size=batch_size)
+    adata.write(output_path)
+
 
 def run_simvi_in_subprocess(
     adata,
