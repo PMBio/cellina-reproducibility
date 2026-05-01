@@ -4,7 +4,7 @@
 \label{tab:loo_summary_merfish}
 \begin{tabular}{lcccccc}
 \toprule
-model_name & Spearman $\uparrow$ & Pearson $\uparrow$ & Signed Precision $\uparrow$ & RMSE_{counts} $\downarrow$ & RMSE_{LFC} $\downarrow$ \\
+Method & Spearman $\uparrow$ & Pearson $\uparrow$ & Signed Precision $\uparrow$ & RMSE\textsubscript{counts} $\downarrow$ & RMSE\textsubscript{LFC} $\downarrow$ \\
 \midrule
 mean shift & 0.47 $\pm$ 0.23 & 0.47 $\pm$ 0.22 & 0.16 $\pm$ 0.08 & \textbf{3.45 $\pm$ 0.33} & 12.57 $\pm$ 2.55 \\
 CPA & 0.68 $\pm$ 0.19 & 0.82 $\pm$ 0.16 & 0.42 $\pm$ 0.13 & 3.62 $\pm$ 0.35 & 6.40 $\pm$ 4.76 \\
@@ -12,9 +12,13 @@ scGen & 0.61 $\pm$ 0.21 & 0.77 $\pm$ 0.17 & 0.21 $\pm$ 0.13 & 3.55 $\pm$ 0.36 & 
 SpatialProp & 0.60 $\pm$ 0.16 & 0.71 $\pm$ 0.14 & 0.08 $\pm$ 0.07 & 3.46 $\pm$ 0.39 & 6.69 $\pm$ 2.78 \\
 MintFlow & 0.66 $\pm$ 0.21 & 0.81 $\pm$ 0.17 & 0.29 $\pm$ 0.16 & 3.60 $\pm$ 0.37 & 7.24 $\pm$ 5.41 \\
 cellina (ablated) & 0.69 $\pm$ 0.19 & 0.82 $\pm$ 0.15 & 0.39 $\pm$ 0.14 & 3.63 $\pm$ 0.35 & 6.69 $\pm$ 4.62 \\
-cellina-GAT & \textbf{0.75 $\pm$ 0.13} & \textbf{0.85 $\pm$ 0.15} & \textbf{0.53 $\pm$ 0.14} & 3.60 $\pm$ 0.36 & \textbf{5.76 $\pm$ 4.49} \\
+\rowcolor{gray!10}
 cellina & 0.73 $\pm$ 0.20 & 0.84 $\pm$ 0.16 & 0.52 $\pm$ 0.18 & 3.61 $\pm$ 0.35 & 6.05 $\pm$ 5.04 \\
-cellina\textsubscript{node-pert} & \textbf{0.66 $\pm$ 0.21} & \textbf{0.80 $\pm$ 0.17} & \textbf{0.32 $\pm$ 0.18} & 3.63 $\pm$ 0.35 & 6.85 $\pm$ 4.63 \\
+\rowcolor{gray!10}
+cellina-GAT & \textbf{0.75 $\pm$ 0.13} & \textbf{0.85 $\pm$ 0.15} & \textbf{0.53 $\pm$ 0.14} & 3.60 $\pm$ 0.36 & \textbf{5.76 $\pm$ 4.49} \\
+\midrule
+\rowcolor{gray!10}
+cellina\textsubscript{node-pert} & \textbf{0.66 $\pm$ 0.21} & \textbf{0.80 $\pm$ 0.17} & \textbf{0.32 $\pm$ 0.17} & 3.63 $\pm$ 0.35 & 6.88 $\pm$ 4.61 \\
 SpatialProp\textsubscript{node-pert} & 0.60 $\pm$ 0.15 & 0.70 $\pm$ 0.13 & 0.08 $\pm$ 0.07 & \textbf{3.46 $\pm$ 0.39} & \textbf{6.69 $\pm$ 2.78} \\
 \bottomrule
 \end{tabular}
