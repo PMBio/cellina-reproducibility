@@ -18,6 +18,8 @@ import argparse
 import numpy as np
 import scanpy as sc
 
+from scipy.stats import pearsonr, spearmanr
+
 DEFAULT_SEED = 0
 N_DEG = 50
 CRC_INFERENCE_BASE_DIR = "/data2/a330d/datasets/crc"
@@ -31,7 +33,7 @@ from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 from train_loo import preprocess_crc, preprocess_merfish, split_indices
 from train_loo import COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY, DEFAULT_HVGS, DEFAULT_CTRL_DOMAINS, DEFAULT_HOLDOUT_DOMAINS, DEFAULT_N_NEIGHBORS
 from utils import set_seed
-from counterfactual_analysis import get_baseline_delta, compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
+from counterfactual_analysis import get_baseline_delta, compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
 
 
 def parse_args():
@@ -205,16 +207,23 @@ def main():
             target = adata.uns['recon_x'][mask_target.values, :]
         counterfactual = adata.uns['counterfactual_x']
 
-        # Compute stats
-        pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG)
-        rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
+        # Compute stats - ground-truth log fold change (lfc) and counterfactual lfc vectors on top DE genes
+        gt_lfc, cf_lfc, deg = get_lfc(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG)
+
+        spear, _ = spearmanr(gt_lfc[deg], cf_lfc[deg])
+        pear, _ = pearsonr(gt_lfc[deg], cf_lfc[deg])
+        prec = precision(gt_lfc, cf_lfc, k=N_DEG, use_abs=True)
+        dir_match = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="intersection")
+        dir_match_k = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="k")
+        dir_match_gt = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="gt_topk")
+        mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=COUNTS_PER_K)
         edist_global = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K)
         edist_local = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True)
         edist_pca_log = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True)
         edist_pca = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
-        mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=COUNTS_PER_K)
-        _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG, direction_match_normalize="k")
-        _, _, _, dir_match_gt, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG, direction_match_normalize="gt_topk")
+        rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
+        mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
+
         print("Eval stats computed.")
 
         # Save results json
@@ -239,7 +248,8 @@ def main():
                     'edistance_local': edist_local,
                     'edistance_pca_log': edist_pca_log,
                     'edistance_pca': edist_pca,
-                    'rmse': np.log10(rmse),
+                    'rmse': rmse,
+                    'mse_lfc': mse_lfc,
                     }
             stats = {
                 k: float(v) if isinstance(v, np.floating) else v

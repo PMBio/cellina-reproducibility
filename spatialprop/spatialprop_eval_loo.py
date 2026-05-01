@@ -5,9 +5,12 @@ import numpy as np
 import scanpy as sc
 import torch
 
+from scipy.stats import pearsonr, spearmanr
+
 sys.path.append('../scripts')
 from train_loo import preprocess_crc, preprocess_merfish
-from counterfactual_analysis import compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
+from counterfactual_analysis import compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
+
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
 
@@ -51,10 +54,11 @@ SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
 CELLTYPES = CRC_CELLTYPES if DATASET_NAME == "crc" else MERFISH_CELLTYPES
 DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
 
-node_pert = False
+node_pert = True
 top_n = 50
 min_cells = 50
 batch_size = 1024
+library_size = 1e4
 labels_key = DATA_ARGS.get('labels_key')
 domains_key = DATA_ARGS.get('domains_key')
 n_top_genes = DATA_ARGS.get('n_top_genes')
@@ -142,7 +146,7 @@ def main():
             adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
         else:
             raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
-        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.normalize_total(adata, target_sum=library_size)
         sc.pp.log1p(adata)
 
         for holdout_ct in CELLTYPES:
@@ -177,7 +181,7 @@ def main():
                 perturbation_dict = {}
                 s = domain_logfc_df.loc[holdout_ct]
                 top_genes = s.abs().nlargest(top_n_perturb).index.tolist()
-                perturbation_dict[holdout_ct] = s[top_genes].to_dict()
+                perturbation_dict[holdout_ct] = np.exp(s[top_genes]).to_dict()
 
                 # 4. Create perturbed input matrix
                 adata_test = sc.read_h5ad(test_path)
@@ -217,26 +221,33 @@ def main():
                 if n_ref < min_cells or n_crc < min_cells:
                     print(f"  skip {holdout_ct}: too few cells (need ≥ {min_cells})")
                 else:
-                    ref_expr = total_normalize(adata_result[mask_ref].X)
+                    ref_expr = total_normalize(adata_result[mask_ref].X, target_sum=library_size)
                     pert_expr = total_normalize(
                         # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
-                        adata_result[mask_crc].layers["predicted_perturbed"]
+                        adata_result[mask_crc].layers["predicted_perturbed"],
+                        target_sum=library_size,
                     )
-                    obs_expr = total_normalize(adata_result[mask_crc].X)
+                    obs_expr = total_normalize(adata_result[mask_crc].X, target_sum=library_size)
 
                     control = ref_expr
                     target = obs_expr
                     counterfactual = pert_expr
 
-                    pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
-                    rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg)
-                    edist_global = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4)
-                    edist_local = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True)
-                    edist_pca_log = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True, use_pca=True)
-                    edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=1e4, local=True, use_pca=True, log1p=False)
-                    mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=1e4)
-                    _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
-                    _, _, _, dir_match_gt, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="gt_topk")
+                    gt_lfc, cf_lfc, deg = get_lfc(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
+
+                    spear, _ = spearmanr(gt_lfc[deg], cf_lfc[deg])
+                    pear, _ = pearsonr(gt_lfc[deg], cf_lfc[deg])
+                    prec = precision(gt_lfc, cf_lfc, k=top_n, use_abs=True)
+                    dir_match = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="intersection")
+                    dir_match_k = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="k")
+                    dir_match_gt = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="gt_topk")
+                    mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=library_size)
+                    edist_global = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size)
+                    edist_local = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True)
+                    edist_pca_log = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True, use_pca=True)
+                    edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True, use_pca=True, log1p=False)
+                    rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=library_size)
+                    mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
 
                     results.append(
                         dict(
@@ -258,7 +269,8 @@ def main():
                             edistance_local=edist_local,
                             edistance_pca_log=edist_pca_log,
                             edistance_pca=edist_pca,
-                            rmse=np.log10(rmse),
+                            rmse=rmse,
+                            mse_lfc=mse_lfc,
                             top_n_perturb=top_n_perturb,
                         )
                     )

@@ -3,7 +3,6 @@ import scanpy as sc
 
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-from scipy.stats import pearsonr, spearmanr
 from sklearn.cluster import KMeans
 
 
@@ -292,7 +291,7 @@ def get_baseline_delta(
     return delta
 
 
-def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, n_deg=200, direction_match_normalize="intersection"):
+def get_lfc(control, target, counterfactual, normalize_counts=True, n_deg=200):
     if normalize_counts:
         control = _normalize_counts(control)
         target = _normalize_counts(target)
@@ -308,12 +307,13 @@ def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, 
 
     deg_scores = np.abs(gt_vec)
     top_features = np.argsort(-deg_scores)[:n_deg]
-    pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
-    spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
-    prec = precision(gt_vec, cf_vec, k=n_deg, use_abs=True)
-    dir_match = direction_match(gt_vec, cf_vec, k=n_deg, normalize=direction_match_normalize)
 
-    return pear, spear, prec, dir_match, top_features
+    return gt_vec, cf_vec, top_features
+
+
+def compute_mse_lfc(gt_vec, cf_vec, deg):
+    # Compute Mean Squared Error between GT and CF log fold changes for top DE genes
+    return np.mean((gt_vec[deg] - cf_vec[deg]) ** 2)
 
 
 def compute_rmse(observed, predicted, normalize_counts=True, log1p=True, deg=None, library_size=1e4):
