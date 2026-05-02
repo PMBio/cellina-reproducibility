@@ -4,7 +4,10 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 import torch
+import anndata as ad
 
+from typing import Dict, Optional
+from scipy.sparse import issparse
 from scipy.stats import pearsonr, spearmanr
 
 sys.path.append('../scripts')
@@ -14,9 +17,9 @@ from counterfactual_analysis import compute_rmse, compute_edistance, mixing_inde
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
 
-from spatial_gnn.api.perturbation_api import (
-    create_perturbation_input_matrix,
-)
+#from spatial_gnn.api.perturbation_api import (
+#    create_perturbation_input_matrix,
+#)
 from spatial_gnn.datasets.spatial_dataset import SpatialAgingCellDataset
 from spatial_gnn.models.inference import predict
 from spatial_gnn.utils.dataset_utils import (
@@ -71,6 +74,85 @@ out_dir = "/data/a330d/tmp/"
 model_base_path = '.'
 results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
 results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'
+
+
+def create_perturbation_input_matrix(
+    adata: ad.AnnData,
+    perturbation_dict: Dict[str, Dict[str, float]],
+    mask_key: str = 'perturbed_input',
+    save_path: Optional[str] = None,
+    normalize_total: bool = True,
+    operation: str = 'multiply',
+) -> str:
+    """
+    Store a full perturbed expression matrix in adata.obsm[mask_key] with the same
+    normalization as the training data.
+
+    Parameters
+    ----------
+    operation : {'multiply', 'add'}, default 'multiply'
+        How to apply each perturbation value to the existing expression:
+        - 'multiply': perturbed = expression * value
+        - 'add':      perturbed = expression + value
+    """
+    if operation not in ('multiply', 'add'):
+        raise ValueError(
+            f"operation must be 'multiply' or 'add', got '{operation}'"
+        )
+
+    perturbed_adata = adata.copy()
+
+    X = perturbed_adata.X
+    if issparse(X):
+        X = X.toarray()
+    else:
+        X = np.asarray(X)
+
+    perturbed = X.copy()  # start from normalized expression
+
+    for cell_type, gene_values in perturbation_dict.items():
+        cell_mask = perturbed_adata.obs['celltype'] == cell_type
+        cell_indices = np.where(cell_mask)[0]
+
+        if len(cell_indices) == 0:
+            print(f"Warning: No cells found for cell type '{cell_type}'")
+            continue
+
+        print(f"Applying perturbations to {len(cell_indices)} cells of type '{cell_type}'")
+
+        for gene_name, value in gene_values.items():
+            if gene_name in perturbed_adata.var_names:
+                gene_idx = perturbed_adata.var_names.get_loc(gene_name)
+
+                if operation == 'multiply':
+                    perturbed[cell_indices, gene_idx] *= value
+                    print(f"  - Gene '{gene_name}': multiplier = {value}")
+                else:  # 'add'
+                    perturbed[cell_indices, gene_idx] += value
+                    # clip negatives that can arise from additive perturbation
+                    np.clip(
+                        perturbed[cell_indices, gene_idx],
+                        a_min=0,
+                        a_max=None,
+                        out=perturbed[cell_indices, gene_idx],
+                    )
+                    print(f"  - Gene '{gene_name}': addend = {value}")
+            else:
+                print(f"Warning: Gene '{gene_name}' not found in data")
+
+    if normalize_total:
+        target_sum = X.shape[1]
+        row_sums = perturbed.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1  # avoid /0
+        perturbed = perturbed / row_sums * target_sum
+        perturbed_adata.obsm[mask_key] = perturbed
+
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        perturbed_adata.write(save_path)
+        print(f"Saved AnnData with perturbation input to: {save_path}")
+
+    return save_path
 
 
 def predict_for_holdout(
@@ -190,6 +272,7 @@ def main():
                     perturbation_dict,
                     save_path=perturbed_path,
                     normalize_total=True,
+                    operation='add',
                 )
 
                 # 5. Run GNN inference restricted to holdout cell type
@@ -276,7 +359,7 @@ def main():
                     )
             
             # Remove spatialprop-generated data files
-            clean_all_dirs()
+            #clean_all_dirs()
 
     df_results = pd.DataFrame(results)
     df_results.to_csv(f"{results_csv_path}", index=False)
