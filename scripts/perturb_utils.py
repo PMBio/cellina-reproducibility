@@ -42,13 +42,32 @@ _LABEL_TO_COARSE = {
     "mast": "Mast_cell",
 }
 
+def _get_domain_labels(adata, domains_key: str) -> tuple[str, str]:
+    """Infer the REF and CRC domain labels from adata.obs[domains_key].
+
+    Scans the unique values for entries containing 'REF' and 'CRC' so the
+    exact label format (e.g. '242_REF') never needs to be hardcoded.
+    """
+    unique = adata.obs[domains_key].astype(str).unique()
+    ref_matches = [d for d in unique if "REF" in d]
+    crc_matches = [d for d in unique if "CRC" in d]
+    if len(ref_matches) != 1:
+        raise ValueError(
+            f"Expected exactly 1 domain containing 'REF', found: {ref_matches}"
+        )
+    if len(crc_matches) != 1:
+        raise ValueError(
+            f"Expected exactly 1 domain containing 'CRC', found: {crc_matches}"
+        )
+    return ref_matches[0], crc_matches[0]
+
 
 def load_crc_slide(
     slide_id: int = 242,
     data_dir: str = "../../data/crc_wt_cosmx",
     n_top_genes: int = 3000,
     labels_key: str = "coarse_type",
-    domains_key: str = "typ",
+    domains_key: str = "typ_clean",
 ):
     """Load and preprocess a CRC CosMx slide.
 
@@ -65,10 +84,16 @@ def load_crc_slide(
     domains_key
         obs column name for domain/tissue labels.
 
+    Details: 
+    --------
+    The CRC 18k CosMx dataset:
+    https://www.biorxiv.org/content/10.1101/2025.06.23.660674v1.abstract
+
     Returns
     -------
     Preprocessed AnnData with:
     - ``obs[labels_key]``: coarse cell-type categories
+    - ``obs['typ_clean']``: clean domain labels (``"REF"``, ``"CRC"``, ``"TVA"``)
     - ``obsm['spatial']``: spatial coordinates
     - ``layers['counts']``: raw counts
     - HVG-filtered genes
@@ -80,6 +105,7 @@ def load_crc_slide(
     adata.obs_names_make_unique()
 
     adata.obs[labels_key] = adata.obs["ist"].map(_LABEL_TO_COARSE)
+    adata.obs["typ_clean"] = adata.obs["typ"].str.extract(r"(REF|TVA|CRC)", expand=False)
 
     adata = adata[~adata.obs[domains_key].isna()].copy()
     adata = adata[~adata.obs[labels_key].isna()].copy()
@@ -99,7 +125,6 @@ def load_crc_slide(
     )
 
     return adata
-
 
 def load_merfish_brain(
     data_dir: str = "../../data/MERFISH_mouse_brain",
