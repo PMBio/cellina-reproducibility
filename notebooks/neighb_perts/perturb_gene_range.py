@@ -127,7 +127,7 @@ def main():
 
     # ── 1. Data ───────────────────────────────────────────────────────────────
     print('Loading data...')
-    adata = load_crc_slide(slide_id, labels_key=labels_key, domains_key=domains_key)
+    adata = load_crc_slide(slide_id, labels_key=labels_key, domains_key=domains_key, n_top_genes=max(TOP_N_PERTURB_VALUES))
 
     ref_label, crc_labels = _get_domain_labels(adata, domains_key)
     print(f'  ref={ref_label!r}, crc={crc_labels}')
