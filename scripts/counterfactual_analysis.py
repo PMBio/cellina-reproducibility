@@ -1,9 +1,8 @@
 import numpy as np
+import scanpy as sc
 
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from scipy.stats import pearsonr, spearmanr
 from sklearn.cluster import KMeans
 
 
@@ -180,18 +179,34 @@ def e_distance(X, Y, local=False, k=10):
     return edist
 
 
-def compute_edistance(observed, predicted, normalize_counts=True, log1p=True, library_size=1e4, deg=None, n_iter=10, n_subsample=200, local=False):
+def compute_edistance(adata, observed, predicted, normalize_counts=True, log1p=True, library_size=1e4, deg=None, n_iter=10, n_subsample=200, use_pca=False, local=False):
     # Normalize observed counts, predicted is already normalized
     observed = _normalize_counts(observed, scale=library_size) if normalize_counts else observed
+    predicted = _normalize_counts(predicted, scale=library_size) if normalize_counts else predicted
 
+    if log1p:
+        observed = np.log1p(observed)
+        predicted = np.log1p(predicted)
+
+    # Subset to DE genes if deg provided; otherwise use all genes
     top_features = deg if deg is not None else np.arange(observed.shape[1])
-    pop_a = np.log1p(observed[:, top_features]) if log1p else observed[:, top_features]
-    pop_b = np.log1p(predicted[:, top_features]) if log1p else predicted[:, top_features]
+    observed = observed[:, top_features]
+    predicted = predicted[:, top_features]
+    adata = adata[:, top_features]
+
+    # Compute PCA on adata training split, apply PCA map to observed and predicted
+    if use_pca:
+        adata = adata[~adata.obs['is_holdout']].copy()
+        sc.pp.normalize_total(adata, target_sum=library_size)
+        pca = PCA(n_components=50)
+        pca.fit(adata.X)
+        observed = pca.transform(observed)
+        predicted = pca.transform(predicted)
 
     edists = []
     for _ in range(n_iter):
-        Xa_s = subsample_cells(pop_a, n_subsample)
-        Xb_s = subsample_cells(pop_b, n_subsample)
+        Xa_s = subsample_cells(observed, n_subsample)
+        Xb_s = subsample_cells(predicted, n_subsample)
         edist = e_distance(Xa_s, Xb_s, local=local)
         edists.append(edist)
 
@@ -224,50 +239,6 @@ def _to_dense(mat):
     return np.asarray(mat)
 
 
-def compute_correlations(control, target, cf, deg=200, eps=1e-6):
-    """
-    Compute Pearson and Spearman correlations between observed and counterfactual LFCs.
-
-    Parameters
-    ----------
-    control : np.ndarray (n_control_cells, n_genes), raw counts
-    target  : np.ndarray (n_target_cells, n_genes), raw counts
-    cf      : np.ndarray (n_control_cells, n_genes), counterfactual normalized expression
-    deg     : int, number of top DEGs (by |observed LFC|) to evaluate on
-    eps     : float, pseudocount for log2 fold change
-
-    Returns
-    -------
-    pearson, spearman : float
-    """
-    control = np.asarray(control, dtype=float)
-    target  = np.asarray(target,  dtype=float)
-    cf      = np.asarray(cf,      dtype=float)
-
-    # Normalize raw counts to library size 1e4
-    control_norm = control / (control.sum(axis=1, keepdims=True) + eps) * 1e4
-    target_norm  = target  / (target.sum(axis=1,  keepdims=True) + eps) * 1e4
-
-    mean_control = control_norm.mean(axis=0)
-    mean_target  = target_norm.mean(axis=0)
-    mean_cf      = cf.mean(axis=0)
-
-    gt_vec = safe_log2_fold_change(mean_target, mean_control, eps=eps)
-    cf_vec = safe_log2_fold_change(mean_cf,     mean_control, eps=eps)
-
-    top_features = np.argsort(-np.abs(gt_vec))[:deg]
-    gt_top = gt_vec[top_features]
-    cf_top = cf_vec[top_features]
-
-    valid = np.isfinite(gt_top) & np.isfinite(cf_top)
-    if valid.sum() < 2:
-        return np.nan, np.nan
-
-    pear,  _ = pearsonr( gt_top[valid], cf_top[valid])
-    spear, _ = spearmanr(gt_top[valid], cf_top[valid])
-    return float(pear), float(spear)
-
-
 def safe_log2_fold_change(a, b, eps=1e-6):
     """
     Compute log2((a + eps) / (b + eps)) elementwise.
@@ -297,7 +268,7 @@ def precision(vec_true, vec_pred, k=20, use_abs=True):
 
 
 def _normalize_counts(x, eps=1e-8, scale=1e4):
-        return x / (x.sum(axis=1, keepdims=True) + eps) * scale
+    return x / (x.sum(axis=1, keepdims=True) + eps) * scale
 
 
 def get_baseline_delta(
@@ -320,7 +291,7 @@ def get_baseline_delta(
     return delta
 
 
-def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, n_deg=200, direction_match_normalize="intersection"):
+def get_lfc(control, target, counterfactual, normalize_counts=True, n_deg=200):
     if normalize_counts:
         control = _normalize_counts(control)
         target = _normalize_counts(target)
@@ -336,12 +307,13 @@ def compute_lfc_metrics(control, target, counterfactual, normalize_counts=True, 
 
     deg_scores = np.abs(gt_vec)
     top_features = np.argsort(-deg_scores)[:n_deg]
-    pear, _ = pearsonr(gt_vec[top_features], cf_vec[top_features])
-    spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
-    prec = precision(gt_vec, cf_vec, k=n_deg, use_abs=True)
-    dir_match = direction_match(gt_vec, cf_vec, k=n_deg, normalize=direction_match_normalize)
 
-    return pear, spear, prec, dir_match, top_features
+    return gt_vec, cf_vec, top_features
+
+
+def compute_mse_lfc(gt_vec, cf_vec, deg):
+    # Compute Mean Squared Error between GT and CF log fold changes for top DE genes
+    return np.mean((gt_vec[deg] - cf_vec[deg]) ** 2)
 
 
 def compute_rmse(observed, predicted, normalize_counts=True, log1p=True, deg=None, library_size=1e4):
@@ -376,6 +348,17 @@ def direction_match(gt_vec, cf_vec, k, normalize="intersection"):
         "intersection" -> divide by |intersection| (current behavior)
         "k"            -> divide by k
     """
+    # Top-k sets (by absolute logFC)
+    gt_topk = np.argsort(-np.abs(gt_vec))[:k]
+
+    if normalize == "gt_topk":
+        # Compare signs on GT top-k only
+        gt_sign = np.sign(gt_vec[gt_topk])
+        cf_sign = np.sign(cf_vec[gt_topk])
+
+        correct = np.sum(gt_sign == cf_sign)
+        return correct / k
+    
     # Top-k sets (by absolute logFC)
     gt_topk = set(np.argsort(-np.abs(gt_vec))[:k])
     cf_topk = set(np.argsort(-np.abs(cf_vec))[:k])

@@ -26,6 +26,7 @@ from configs.cellina_config import MODEL_ARGS, TRAIN_ARGS, PLAN_KWARGS
 from counterfactual_analysis import (
     safe_log2_fold_change, precision,
     e_distance, subsample_cells, _normalize_counts,
+    direction_match,
 )
 
 scvi.settings.seed = 0
@@ -34,19 +35,11 @@ EDISTANCE_SUBSAMPLE = 500
 EDISTANCE_N_ITER    = 10
 TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000, 3000]
 _METRIC_KEYS = ('pearson_r', 'spearman_r', 'precision', 'direction_match',
+                'direction_match_k',
                 'edistance', 'edistance_local', 'rmse_log1p')
 
 
 # ── Metric helpers ────────────────────────────────────────────────────────────
-
-def direction_match(gt_vec, cf_vec, k):
-    gt_topk = set(np.argsort(-np.abs(gt_vec))[:k])
-    cf_topk = set(np.argsort(-np.abs(cf_vec))[:k])
-    intersect = list(gt_topk & cf_topk)
-    if len(intersect) == 0:
-        return 0.0
-    return float(np.mean(np.sign(gt_vec[intersect]) == np.sign(cf_vec[intersect])))
-
 
 def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4):
     ref_norm  = _normalize_counts(ref_expr,  eps=eps, scale=scale)
@@ -63,8 +56,9 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
     top_features = np.argsort(-np.abs(gt_vec))[:top_n]
     pear,  _ = pearsonr( gt_vec[top_features], cf_vec[top_features])
     spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
-    prec     = precision(gt_vec, cf_vec, k=top_n, use_abs=True)
-    dir_m    = direction_match(gt_vec, cf_vec, k=top_n)
+    prec      = precision(gt_vec, cf_vec, k=top_n, use_abs=True)
+    dir_m     = direction_match(gt_vec, cf_vec, k=top_n)
+    dir_m_k   = direction_match(gt_vec, cf_vec, k=top_n, normalize="k")
 
     pop_a = np.log1p(obs_norm[:,  top_features])
     pop_b = np.log1p(pert_norm[:, top_features])
@@ -83,7 +77,9 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
     )))
     return dict(
         pearson_r=float(pear), spearman_r=float(spear),
-        precision=float(prec), direction_match=float(dir_m),
+        precision=float(prec),
+        direction_match=float(dir_m),
+        direction_match_k=float(dir_m_k),
         edistance=float(np.mean(edists)),
         edistance_local=float(np.mean(edists_local)),
         rmse_log1p=rmse_log1p,
