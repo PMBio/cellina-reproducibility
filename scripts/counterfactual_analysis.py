@@ -1,5 +1,8 @@
 import numpy as np
 import scanpy as sc
+import decoupler as dc
+import scipy.sparse as sp
+import pandas as pd
 
 from tqdm import tqdm
 from sklearn.decomposition import PCA
@@ -380,3 +383,45 @@ def direction_match(gt_vec, cf_vec, k, normalize="intersection"):
         return correct / k
     else:
         raise ValueError("normalize must be 'intersection' or 'k'")
+
+
+def get_perturbation_logfc(adata, control_domain, holdout_domain, labels_key, domains_key):
+    # Cell-type-specific
+    pdata_ct = dc.pp.pseudobulk(
+        adata=adata, sample_col=domains_key, groups_col=labels_key, mode='sum', layer='counts'
+    )
+    sc.pp.normalize_total(pdata_ct, target_sum=1e4)
+    sc.pp.log1p(pdata_ct)
+
+    cell_types_with_both = [
+        ct for ct in pdata_ct.obs[labels_key].unique()
+        if ((pdata_ct.obs[domains_key] == control_domain) & (pdata_ct.obs[labels_key] == ct)).any()
+        and ((pdata_ct.obs[domains_key] == holdout_domain) & (pdata_ct.obs[labels_key] == ct)).any()
+    ]
+
+    _ct_rows = []
+    for _ct in cell_types_with_both:
+        _crc_ct = pdata_ct[(pdata_ct.obs[domains_key] == holdout_domain) & (pdata_ct.obs[labels_key] == _ct)].X
+        _ref_ct = pdata_ct[(pdata_ct.obs[domains_key] == control_domain) & (pdata_ct.obs[labels_key] == _ct)].X
+        _crc_m  = np.asarray(_crc_ct.mean(axis=0)).flatten() if sp.issparse(_crc_ct) else _crc_ct.mean(axis=0).flatten()
+        _ref_m  = np.asarray(_ref_ct.mean(axis=0)).flatten() if sp.issparse(_ref_ct) else _ref_ct.mean(axis=0).flatten()
+        _ct_rows.append(pd.Series(_crc_m - _ref_m, index=pdata_ct.var_names, name=_ct))
+    domain_logfc_df = pd.concat(_ct_rows, axis=1).T
+
+    return domain_logfc_df
+
+
+def get_global_perturbation_logfc(adata, control_domain, holdout_domain, labels_key, domains_key, holdout_ct):
+    adata_sub = adata[adata.obs[labels_key]!=holdout_ct]
+    pdata_global = dc.pp.pseudobulk(
+        adata=adata_sub, sample_col=domains_key, groups_col=None, mode='sum', layer='counts'
+    )
+    sc.pp.normalize_total(pdata_global, target_sum=1e4)
+    sc.pp.log1p(pdata_global)
+
+    _holdout_X    = pdata_global[pdata_global.obs[domains_key] == holdout_domain].X
+    _control_X    = pdata_global[pdata_global.obs[domains_key] == control_domain].X
+    _holdout_mean = np.asarray(_holdout_X.mean(axis=0)).flatten() if sp.issparse(_holdout_X) else _holdout_X.mean(axis=0).flatten()
+    _control_mean = np.asarray(_control_X.mean(axis=0)).flatten() if sp.issparse(_control_X) else _control_X.mean(axis=0).flatten()
+    
+    return pd.Series(_holdout_mean - _control_mean, index=pdata_global.var_names)
