@@ -4,18 +4,24 @@
 \label{tab:loo_summary_crc}
 \begin{tabular}{lcccc}
 \toprule
- & Spearman $\uparrow$ & Pearson $\uparrow$ & Signed Precision $\uparrow$ & RMSE $\downarrow$ \\
+Method & Pearson $\uparrow$ & Precision\textsubscript{signed} $\uparrow$ & E-distance $\downarrow$ & RMSE\textsubscript{LFC} $\downarrow$ \\
 \midrule
-mean shift & 0.54 $\pm$ 0.26 & 0.51 $\pm$ 0.25 & 0.17 $\pm$ 0.13 & \textbf{4.24 $\pm$ 0.69} \\
-CPA & 0.58 $\pm$ 0.17 & 0.68 $\pm$ 0.19 & 0.22 $\pm$ 0.19 & 4.25 $\pm$ 0.67 \\
-scGen & 0.44 $\pm$ 0.29 & 0.50 $\pm$ 0.37 & 0.19 $\pm$ 0.20 & 4.24 $\pm$ 0.68 \\
-SpatialProp & 0.34 $\pm$ 0.28 & 0.38 $\pm$ 0.34 & 0.08 $\pm$ 0.15 & 4.47 $\pm$ 0.56 \\
-MintFlow & 0.56 $\pm$ 0.28 & 0.66 $\pm$ 0.32 & 0.24 $\pm$ 0.22 & 4.66 $\pm$ 0.56 \\
-cellina (ablated) & 0.62 $\pm$ 0.22 & 0.72 $\pm$ 0.24 & 0.29 $\pm$ 0.21 & 4.28 $\pm$ 0.65 \\
-cellina-GAT & 0.75 $\pm$ 0.16 & 0.85 $\pm$ 0.18 & \textbf{0.41 $\pm$ 0.19} & 4.28 $\pm$ 0.65 \\
-cellina & \textbf{0.76 $\pm$ 0.13} & \textbf{0.85 $\pm$ 0.16} & 0.37 $\pm$ 0.20 & 4.29 $\pm$ 0.64 \\
-cellina$_{node-pert}$ & 0.51 $\pm$ 0.27 & 0.61 $\pm$ 0.30 & 0.27 $\pm$ 0.23 & 4.30 $\pm$ 0.64 \\
-SpatialProp$_{node-pert}$ & 0.32 $\pm$ 0.29 & 0.36 $\pm$ 0.34 & 0.05 $\pm$ 0.09 & 4.50 $\pm$ 0.56 \\
+mean shift & 0.51 $\pm$ 0.25 & 0.17 $\pm$ 0.13 & 32.38 $\pm$ 10.67 & 6.67 $\pm$ 3.33 \\
+CPA & 0.68 $\pm$ 0.19 & 0.22 $\pm$ 0.19 & 6.44 $\pm$ 2.27 & 1.50 $\pm$ 0.56 \\
+scGen & 0.50 $\pm$ 0.37 & 0.19 $\pm$ 0.20 & \textbf{4.65 $\pm$ 3.49} & 1.99 $\pm$ 0.84 \\
+SpatialProp & 0.35 $\pm$ 0.35 & 0.05 $\pm$ 0.08 & 32.95 $\pm$ 8.09 & 6.65 $\pm$ 1.08 \\
+MintFlow & 0.65 $\pm$ 0.31 & 0.23 $\pm$ 0.21 & 13.01 $\pm$ 1.76 & 1.51 $\pm$ 0.43 \\
+cellina (ablated) & 0.72 $\pm$ 0.24 & 0.29 $\pm$ 0.21 & 5.79 $\pm$ 1.38 & 1.50 $\pm$ 0.83 \\
+\rowcolor{gray!10}
+cellina & \textbf{0.85 $\pm$ 0.16} & 0.37 $\pm$ 0.20 & 6.86 $\pm$ 1.14 & 1.26 $\pm$ 0.67 \\
+\rowcolor{gray!10}
+cellina-GAT & \textbf{0.85 $\pm$ 0.18} & \textbf{0.41 $\pm$ 0.19} & 9.11 $\pm$ 1.63 & \textbf{1.14 $\pm$ 0.62} \\
+\midrule
+\rowcolor{gray!10}
+cellina\textsubscript{node-pert} & \textbf{0.74 $\pm$ 0.20} & \textbf{0.30 $\pm$ 0.22} & \textbf{6.87 $\pm$ 2.06} & \textbf{1.46 $\pm$ 0.66} \\
+\rowcolor{gray!10}
+cellina-GAT\textsubscript{node-pert} & 0.63 $\pm$ 0.35 & 0.27 $\pm$ 0.22 & 8.13 $\pm$ 1.79 & 1.55 $\pm$ 0.66 \\
+SpatialProp\textsubscript{node-pert} & 0.36 $\pm$ 0.35 & 0.05 $\pm$ 0.08 & 32.74 $\pm$ 8.30 & 6.66 $\pm$ 1.09 \\
 \bottomrule
 \end{tabular}
 \end{table}
