@@ -12,6 +12,7 @@ from scipy.stats import pearsonr, spearmanr
 
 sys.path.append('../scripts')
 from train_loo import preprocess_crc, preprocess_merfish
+from counterfactual_analysis import get_perturbation_logfc, get_global_perturbation_logfc
 from counterfactual_analysis import compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
 
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
@@ -257,13 +258,15 @@ def main():
 
             for hd in holdout_domains:
                 # 3. Compute pseudobulk logFC → perturbation dict
-                domain_logfc_df = compute_pseudobulk_logfc(
-                    adata, labels_key, domains_key, control_domain=control_domain, holdout_domain=hd
-                )
+                domain_logfc_df = get_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key)
+                global_logfc_series = get_global_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key, holdout_ct)
+                domain_logfc_df.loc[holdout_ct, global_logfc_series.index] = global_logfc_series
+
                 perturbation_dict = {}
-                s = domain_logfc_df.loc[holdout_ct]
-                top_genes = s.abs().nlargest(top_n_perturb).index.tolist()
-                perturbation_dict[holdout_ct] = np.exp(s[top_genes]).to_dict()
+                for ct in domain_logfc_df.index:
+                    s = domain_logfc_df.loc[ct]
+                    top_g = s.abs().nlargest(top_n_perturb).index.tolist()
+                    perturbation_dict[ct] = np.exp(s[top_g]).to_dict()
 
                 # 4. Create perturbed input matrix
                 adata_test = sc.read_h5ad(test_path)
