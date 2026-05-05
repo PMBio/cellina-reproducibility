@@ -24,8 +24,9 @@ from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
 from perturb_utils import load_crc_slide, _get_domain_labels
 from configs.cellina_config import MODEL_ARGS, TRAIN_ARGS, PLAN_KWARGS
 from counterfactual_analysis import (
-    safe_log2_fold_change, precision_at_k,
+    safe_log2_fold_change, precision,
     e_distance, subsample_cells, _normalize_counts,
+    direction_match,
 )
 
 scvi.settings.seed = 0
@@ -34,19 +35,11 @@ EDISTANCE_SUBSAMPLE = 500
 EDISTANCE_N_ITER    = 10
 TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000, 3000]
 _METRIC_KEYS = ('pearson_r', 'spearman_r', 'precision', 'direction_match',
+                'direction_match_k',
                 'edistance', 'edistance_local', 'rmse_log1p')
 
 
 # ── Metric helpers ────────────────────────────────────────────────────────────
-
-def direction_match(gt_vec, cf_vec, k):
-    gt_topk = set(np.argsort(-np.abs(gt_vec))[:k])
-    cf_topk = set(np.argsort(-np.abs(cf_vec))[:k])
-    intersect = list(gt_topk & cf_topk)
-    if len(intersect) == 0:
-        return 0.0
-    return float(np.mean(np.sign(gt_vec[intersect]) == np.sign(cf_vec[intersect])))
-
 
 def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4):
     ref_norm  = _normalize_counts(ref_expr,  eps=eps, scale=scale)
@@ -63,8 +56,9 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
     top_features = np.argsort(-np.abs(gt_vec))[:top_n]
     pear,  _ = pearsonr( gt_vec[top_features], cf_vec[top_features])
     spear, _ = spearmanr(gt_vec[top_features], cf_vec[top_features])
-    prec     = precision_at_k(gt_vec, cf_vec, k=top_n, use_abs=True)
-    dir_m    = direction_match(gt_vec, cf_vec, k=top_n)
+    prec      = precision(gt_vec, cf_vec, k=top_n, use_abs=True)
+    dir_m     = direction_match(gt_vec, cf_vec, k=top_n)
+    dir_m_k   = direction_match(gt_vec, cf_vec, k=top_n, normalize="k")
 
     pop_a = np.log1p(obs_norm[:,  top_features])
     pop_b = np.log1p(pert_norm[:, top_features])
@@ -83,7 +77,9 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
     )))
     return dict(
         pearson_r=float(pear), spearman_r=float(spear),
-        precision=float(prec), direction_match=float(dir_m),
+        precision=float(prec),
+        direction_match=float(dir_m),
+        direction_match_k=float(dir_m_k),
         edistance=float(np.mean(edists)),
         edistance_local=float(np.mean(edists_local)),
         rmse_log1p=rmse_log1p,
@@ -112,7 +108,7 @@ def main():
 
     slide_id    = args.slide_id
     labels_key  = 'coarse_type'
-    domains_key = 'typ'
+    domains_key = 'typ_clean'
     top_n       = args.top_n
     batch_size  = args.batch_size
     min_cells   = args.min_cells
@@ -127,12 +123,15 @@ def main():
 
     # ── 1. Data ───────────────────────────────────────────────────────────────
     print('Loading data...')
-    adata = load_crc_slide(slide_id, labels_key=labels_key, domains_key=domains_key)
+    adata = load_crc_slide(slide_id, labels_key=labels_key, domains_key=domains_key, n_top_genes=max(TOP_N_PERTURB_VALUES))
 
     ref_label, crc_labels = _get_domain_labels(adata, domains_key)
     print(f'  ref={ref_label!r}, crc={crc_labels}')
 
     spatial_neighbors(adata, bandwidth=100 / 0.12028, max_neighbours=200, standardize=False)
+    adata.X = adata.layers['counts'].copy()
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.log1p(adata)
     compute_spatial_features(adata)
 
     # ── 2. Model ──────────────────────────────────────────────────────────────
@@ -165,7 +164,7 @@ def main():
     )
     sc.pp.normalize_total(pdata_global, target_sum=1e4)
     sc.pp.log1p(pdata_global)
-    _crc_X = pdata_global[pdata_global.obs[domains_key].isin(crc_labels)].X
+    _crc_X = pdata_global[pdata_global.obs[domains_key] == crc_labels].X
     _ref_X = pdata_global[pdata_global.obs[domains_key] == ref_label].X
     _crc_mean = np.asarray(_crc_X.mean(axis=0)).flatten() if sp.issparse(_crc_X) else _crc_X.mean(axis=0).flatten()
     _ref_mean = np.asarray(_ref_X.mean(axis=0)).flatten() if sp.issparse(_ref_X) else _ref_X.mean(axis=0).flatten()
@@ -180,11 +179,11 @@ def main():
     cell_types_with_both = [
         ct for ct in pdata_ct.obs[labels_key].unique()
         if ((pdata_ct.obs[domains_key] == ref_label) & (pdata_ct.obs[labels_key] == ct)).any()
-        and (pdata_ct.obs[domains_key].isin(crc_labels) & (pdata_ct.obs[labels_key] == ct)).any()
+        and ((pdata_ct.obs[domains_key] == crc_labels) & (pdata_ct.obs[labels_key] == ct)).any()
     ]
     _ct_rows = []
     for _ct in cell_types_with_both:
-        _crc_ct = pdata_ct[pdata_ct.obs[domains_key].isin(crc_labels) & (pdata_ct.obs[labels_key] == _ct)].X
+        _crc_ct = pdata_ct[(pdata_ct.obs[domains_key] == crc_labels) & (pdata_ct.obs[labels_key] == _ct)].X
         _ref_ct = pdata_ct[(pdata_ct.obs[domains_key] == ref_label)   & (pdata_ct.obs[labels_key] == _ct)].X
         _crc_m  = np.asarray(_crc_ct.mean(axis=0)).flatten() if sp.issparse(_crc_ct) else _crc_ct.mean(axis=0).flatten()
         _ref_m  = np.asarray(_ref_ct.mean(axis=0)).flatten() if sp.issparse(_ref_ct) else _ref_ct.mean(axis=0).flatten()
@@ -205,7 +204,7 @@ def main():
             (adata.obs[labels_key] == ct) & (adata.obs[domains_key] == ref_label)
         )[0]
         crc_idx = np.where(
-            (adata.obs[labels_key] == ct) & (adata.obs[domains_key].isin(crc_labels))
+            (adata.obs[labels_key] == ct) & (adata.obs[domains_key] == crc_labels)
         )[0]
         if len(ref_idx) < min_cells or len(crc_idx) < min_cells:
             print(f'  skip {ct}: ref={len(ref_idx)}, crc={len(crc_idx)}')
