@@ -266,7 +266,7 @@ def main():
                 for ct in domain_logfc_df.index:
                     s = domain_logfc_df.loc[ct]
                     top_g = s.abs().nlargest(top_n_perturb).index.tolist()
-                    perturbation_dict[ct] = np.exp(s[top_g]).to_dict()
+                    perturbation_dict[ct] = s[top_g].to_dict()
 
                 # 4. Create perturbed input matrix
                 adata_test = sc.read_h5ad(test_path)
