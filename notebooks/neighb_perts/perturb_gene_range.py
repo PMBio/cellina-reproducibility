@@ -33,7 +33,7 @@ scvi.settings.seed = 0
 
 EDISTANCE_SUBSAMPLE = 500
 EDISTANCE_N_ITER    = 10
-TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000, 3000]
+TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000]
 _METRIC_KEYS = ('pearson_r', 'spearman_r', 'precision', 'direction_match',
                 'direction_match_k',
                 'edistance', 'edistance_local', 'rmse_log1p')
@@ -258,12 +258,13 @@ def main():
               f'  Spearman r = {np.mean(g_vals["spearman_r"]):.3f}'
               f'  prec = {np.mean(g_vals["precision"]):.3f}')
 
-        # Cell-type-specific perturbation
+        # Cell-type-specific perturbation — shift ALL cell types so every neighbour
+        # contributes CRC-like expression; fall back to global logFC for CTs that
+        # lack a paired CRC pseudobulk (e.g. TVA-only types).
         logfc_series_dict = {}
-        for ct in domain_logfc_df.index:
-            s    = domain_logfc_df.loc[ct]
-            top_g = s.abs().nlargest(n).index.tolist()
-            logfc_series_dict[ct] = s[top_g]
+        for ct in adata.obs[labels_key].unique():
+            s = domain_logfc_df.loc[ct] if ct in domain_logfc_df.index else global_logfc_series
+            logfc_series_dict[ct] = s[s.abs().nlargest(n).index]
         make_neighbor_perturbation(
             adata, perturbations=logfc_series_dict, groupby=labels_key,
             obsm_key_out='spatial_x_cf', base=np.e,
