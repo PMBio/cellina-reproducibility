@@ -26,17 +26,17 @@ from configs.cellina_config import MODEL_ARGS, TRAIN_ARGS, PLAN_KWARGS
 from counterfactual_analysis import (
     safe_log2_fold_change, precision,
     e_distance, subsample_cells, _normalize_counts,
-    direction_match,
+    direction_match, compute_mse_lfc,
 )
 
 scvi.settings.seed = 0
 
 EDISTANCE_SUBSAMPLE = 500
 EDISTANCE_N_ITER    = 10
-TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000]
+TOP_N_PERTURB_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000, 3000]
 _METRIC_KEYS = ('pearson_r', 'spearman_r', 'precision', 'direction_match',
                 'direction_match_k',
-                'edistance', 'edistance_local', 'rmse_log1p')
+                'edistance', 'edistance_local', 'rmse_log1p', 'rmse_logfc')
 
 
 # ── Metric helpers ────────────────────────────────────────────────────────────
@@ -75,6 +75,7 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
     rmse_log1p = float(np.sqrt(np.mean(
         (np.log1p(obs_norm).sum(0) - np.log1p(pert_norm).sum(0)) ** 2
     )))
+    rmse_logfc = float(np.sqrt(compute_mse_lfc(gt_vec, cf_vec, top_features)))
     return dict(
         pearson_r=float(pear), spearman_r=float(spear),
         precision=float(prec),
@@ -83,6 +84,7 @@ def compute_metrics(ref_expr, pert_expr, obs_expr, top_n=50, eps=1e-8, scale=1e4
         edistance=float(np.mean(edists)),
         edistance_local=float(np.mean(edists_local)),
         rmse_log1p=rmse_log1p,
+        rmse_logfc=rmse_logfc,
     )
 
 
