@@ -35,7 +35,7 @@ Saves per-slide CSVs to `../../results/microenvironments_{slide_id}.csv` and fig
 
 ## Inputs
 
-Raw data: `/data/a330d/datasets/crc/raw_zenodo/{slide_id}.h5ad`
+Raw data: `$DATA_ROOT/datasets/crc/raw_zenodo/{slide_id}.h5ad`
 
 ## Dependencies
 

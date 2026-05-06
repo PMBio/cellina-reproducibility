@@ -13,6 +13,7 @@ Example:
  python scripts/train_parallel.py --concurrency 3
 
 """
+import os
 import sys
 import argparse
 import subprocess
@@ -20,6 +21,8 @@ import shlex
 import time
 import glob
 from pathlib import Path
+
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
@@ -31,12 +34,12 @@ PY = sys.executable
 DATASET_NAME = "merfish"  # or "merfish"
 
 CRC_PATHS = [
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    #"/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
+    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
+    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_221.h5ad"),
+    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_231.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_232.h5ad"),
+    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_242.h5ad"),
+    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_120.h5ad"),
 ]
 
 CRC_HOLDOUTS = [
@@ -48,9 +51,9 @@ CRC_HOLDOUTS = [
 ]
 
 MERFISH_PATHS = [
-    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad",    
-    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad",
-    "/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad",
+    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
+    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad"),
 ]
 
 MERFISH_HOLDOUTS = [
@@ -231,15 +234,15 @@ def main():
                 cmd = make_cmd(p, DATASET_NAME, holdout, model_class, model_name, args.extra_args, model_extra)
                 # If the model class is 'cpa', run the command with the CPA env python directly
                 if model_class == 'cpa':
-                    cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python"
+                    cpa_python = os.environ.get("CPA_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
-                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python"
+                    concert_python = os.environ.get("CONCERT_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':
-                    scgen_python = "/data/a330d/miniforge3/envs/cellina-base/bin/python"
+                    scgen_python = os.environ.get("SCGEN_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = scgen_python
 

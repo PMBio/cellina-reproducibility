@@ -6,6 +6,8 @@ import scanpy as sc
 import torch
 import anndata as ad
 
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+
 from typing import Dict, Optional
 from scipy.sparse import issparse
 from scipy.stats import pearsonr, spearmanr
@@ -33,7 +35,7 @@ from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
 DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
 
-CRC_BASE_PATH = "/data2/a330d/datasets/crc/raw_zenodo"
+CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
 CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 CRC_CELLTYPES = [
     "Endothelial",
@@ -43,7 +45,7 @@ CRC_CELLTYPES = [
     "T_cell",
 ]
 
-MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_BASE_PATH = os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain")
 MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
 MERFISH_CELLTYPES = [
     'glutamatergic neuron',
@@ -71,7 +73,7 @@ device = "cuda:1" if torch.cuda.is_available() else "cpu"
 n_neighbors = DATA_ARGS.get('n_neighbors')
 control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one control domain for simplicity
 holdout_domains = DATA_ARGS.get('holdout_domains')
-out_dir = "/data/a330d/tmp/"
+out_dir = os.path.join(DATA_ROOT, "tmp/")
 model_base_path = '.'
 results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
 results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'

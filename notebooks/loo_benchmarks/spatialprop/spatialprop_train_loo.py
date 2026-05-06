@@ -10,6 +10,8 @@ import pandas as pd
 import scanpy as sc
 import torch
 
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+
 sys.path.append('../scripts')
 from train_loo import preprocess_crc, preprocess_merfish, split_indices
 
@@ -21,7 +23,7 @@ from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
 DATASET_NAME = "merfish"  # or "merfish"
 
-CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
+CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
 CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 CRC_CELLTYPES = [
     "Endothelial",
@@ -31,7 +33,7 @@ CRC_CELLTYPES = [
     "T_cell",
 ]
 
-MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_BASE_PATH = os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain")
 MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
 MERFISH_CELLTYPES = [
     'glutamatergic neuron',
@@ -55,7 +57,7 @@ n_neighbors = DATA_ARGS.get('n_neighbors')
 control_domains = DATA_ARGS.get('control_domains')
 holdout_domains = DATA_ARGS.get('holdout_domains')
 device = "cuda:1" if torch.cuda.is_available() else "cpu"
-out_dir = "/data/a330d/tmp/"
+out_dir = os.path.join(DATA_ROOT, "tmp/")
 
 def _clean_incomplete_gnn_dirs(base_dir: str = "data/gnn_datasets") -> None:
     """Remove GNN dataset subdirs that have no manifest.json (crashed mid-processing)."""

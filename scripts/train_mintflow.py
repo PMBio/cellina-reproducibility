@@ -5,6 +5,8 @@ sys.path.append('./scripts')
 import scanpy as sc
 import os
 from tqdm import tqdm
+
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 import argparse
 
 import mintflow
@@ -17,10 +19,10 @@ from train_loo import preprocess_crc, preprocess_merfish
 set_seed(0)
 DATASET_NAME = "merfish"  # or "merfish"
 
-CRC_BASE_PATH = "/data/a330d/datasets/crc/raw_zenodo"
+CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
 CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 
-MERFISH_BASE_PATH = "/data/a330d/datasets/MERFISH_mouse_brain"
+MERFISH_BASE_PATH = os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain")
 MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
 
 ADATA_BASE_PATH = CRC_BASE_PATH if DATASET_NAME == "crc" else MERFISH_BASE_PATH
@@ -36,8 +38,8 @@ PATIENT_ID = DATA_ARGS.get('batch_key')
 N_NEIGHBORS = 5
 CHECKPOINT_INTERVAL = 10
 USE_WANDB = 'False'
-MODEL_OUTPUT_PATH = "/data/a330d/data/ood/trained"
-ADATA_SAVE_PATH = f"/data/a330d/datasets/{DATASET_NAME}/processed"
+MODEL_OUTPUT_PATH = os.path.join(DATA_ROOT, "data/ood/trained")
+ADATA_SAVE_PATH = os.path.join(DATA_ROOT, f"datasets/{DATASET_NAME}/processed")
 X_POS = 'CenterX_global_px'
 Y_POS = 'CenterY_global_px'
 

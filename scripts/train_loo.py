@@ -4,7 +4,7 @@ Train a model holding out a cell type (leave-one-out) and save reconstructions a
 Usage (examples):
 
 python scripts/train_loo.py \
-  --adata_path /data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad \
+  --adata_path <path/to/adata> \
   --holdout_celltype Epithelial \
   --model_class cellina \
   --model_name cond_z_False_sim_seed_0_ood
@@ -12,7 +12,7 @@ python scripts/train_loo.py \
 This script mirrors preprocessing and inference steps used in the notebooks.
 
 Outputs:
- - trained model saved under /data2/a330d/data/ood/trained/{model_name}_{holdout_celltype}/
+ - trained model saved under <DATA_ROOT>/data/ood/trained/{model_name}_{holdout_celltype}/
  - reconstructions saved to <adata_parent_dir>/{model_name}_{holdout_celltype}_recon_x.h5ad
  - (optional) counterfactual reconstructions saved to <adata_parent_dir>/{model_name}_{holdout_celltype}_counterfactual_x.h5ad
 """
@@ -24,6 +24,8 @@ import scanpy as sc
 import anndata as ad
 import sys
 import torch
+
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -38,7 +40,7 @@ DEFAULT_DOMAINS_KEY = 'typ'
 DEFAULT_BATCH_KEY = 'sid'
 DEFAULT_CTRL_DOMAINS = ['REF']
 DEFAULT_HOLDOUT_DOMAINS = ['CRC']
-MODEL_ROOT = "/data/a330d/data/ood/trained"
+MODEL_ROOT = os.path.join(DATA_ROOT, "data/ood/trained")
 
 # local utils
 from counterfactual_analysis import _normalize_counts
@@ -320,7 +322,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
         # CONCERT: instantiate and train using data-derived positional + attribute matrices.
         try:
             import sys
-            sys.path.append('/data/a330d/projects/CONCERT/src')
+            sys.path.append(os.environ.get("CONCERT_SRC", "./src"))
             from concert_map import CONCERT
         except Exception as e:
             raise RuntimeError("CONCERT is not importable; ensure CONCERT code is on PYTHONPATH (see notebooks/concert.ipynb)") from e

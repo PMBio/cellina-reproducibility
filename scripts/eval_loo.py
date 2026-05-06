@@ -2,7 +2,7 @@
 Evaluate leave-one-celltype-out model reconstructions for a single holdout cell type.
 
 Usage:
-python scripts/eval_loo.py --dataset_name crc --adata_path /data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad --holdout_celltype Fibroblast --model_class cellina --model_name cellina --use_cf
+python scripts/eval_loo.py --dataset_name crc --adata_path <path/to/adata> --holdout_celltype Fibroblast --model_class cellina --model_name cellina --use_cf
 
 Explain what this script does in bullet points:
 - Loads an AnnData object containing spatial single-cell data for a given holdout cell type
@@ -18,13 +18,15 @@ import argparse
 import numpy as np
 import scanpy as sc
 
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+
 from scipy.stats import pearsonr, spearmanr
 
 DEFAULT_SEED = 0
 N_DEG = 50
-CRC_INFERENCE_BASE_DIR = "/data2/a330d/datasets/crc"
-MERFISH_INFERENCE_BASE_DIR = "/data/a330d/datasets"
-OUT_DIR_BASE_PATH = "/data/a330d/datasets"
+CRC_INFERENCE_BASE_DIR = os.path.join(DATA_ROOT, "datasets/crc")
+MERFISH_INFERENCE_BASE_DIR = os.path.join(DATA_ROOT, "datasets")
+OUT_DIR_BASE_PATH = os.path.join(DATA_ROOT, "datasets")
 
 # reuse preprocessing defaults from configs
 sys.path.append('./scripts')

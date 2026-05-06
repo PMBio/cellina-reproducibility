@@ -11,6 +11,7 @@ Behavior:
 
 Edit the lists below to point to the adata files and models you want to evaluate.
 """
+import os
 import sys
 import argparse
 import subprocess
@@ -18,6 +19,8 @@ import shlex
 import glob
 from pathlib import Path
 import time
+
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EVAL_SCRIPT = SCRIPT_DIR / "eval_loo.py"
@@ -28,12 +31,12 @@ PY = sys.executable
 DATASET_NAME = "crc"  # or "merfish"
 
 CRC_PATHS = [
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_210.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_221.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_231.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_232.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_242.h5ad",
-    "/data2/a330d/datasets/crc/raw_zenodo/crc_120.h5ad",
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_221.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_231.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_232.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_242.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_120.h5ad"),
 ]
 
 CRC_HOLDOUTS = [
@@ -45,9 +48,9 @@ CRC_HOLDOUTS = [
 ]
 
 MERFISH_PATHS = [
-    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad",    
-    #"/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad",
-    "/data2/a330d/datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad",
+    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
+    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad"),
 ]
 
 MERFISH_HOLDOUTS = [
