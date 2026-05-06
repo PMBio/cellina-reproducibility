@@ -414,4 +414,4 @@ dependencies:
       - xarray==2024.9.0
       - xxhash==3.6.0
       - yarl==1.14.0
-prefix: /data/ddimitrov/software/miniforge3/envs/cellina
+      - pertpy==0.10.0

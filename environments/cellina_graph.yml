@@ -428,4 +428,3 @@ dependencies:
       - yarl==1.14.0
       - zarr==2.18.3
       - zict==3.0.0
-prefix: /data/ddimitrov/software/miniforge3/envs/cellina_edge

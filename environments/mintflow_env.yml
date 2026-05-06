@@ -369,4 +369,3 @@ dependencies:
       - xarray-dataclass==3.0.0
       - xarray-spatial==0.5.2
       - zict==3.0.0
-prefix: /data/a330d/miniforge3/envs/mintflow_env
