@@ -1,18 +1,26 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 import scanpy as sc
 import torch
+import anndata as ad
+
+from typing import Dict, Optional
+from scipy.sparse import issparse
+from scipy.stats import pearsonr, spearmanr
 
 sys.path.append('../scripts')
 from train_loo import preprocess_crc, preprocess_merfish
-from counterfactual_analysis import compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
+from counterfactual_analysis import get_perturbation_logfc, get_global_perturbation_logfc
+from counterfactual_analysis import compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
+
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
 
-from spatial_gnn.api.perturbation_api import (
-    create_perturbation_input_matrix,
-)
+#from spatial_gnn.api.perturbation_api import (
+#    create_perturbation_input_matrix,
+#)
 from spatial_gnn.datasets.spatial_dataset import SpatialAgingCellDataset
 from spatial_gnn.models.inference import predict
 from spatial_gnn.utils.dataset_utils import (
@@ -23,7 +31,7 @@ from spatial_gnn.utils.dataset_utils import (
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-DATASET_NAME = "crc"  # Options: ['crc', 'merfish']
+DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
 
 CRC_BASE_PATH = "/data2/a330d/datasets/crc/raw_zenodo"
 CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
@@ -54,6 +62,7 @@ node_pert = True
 top_n = 50
 min_cells = 50
 batch_size = 1024
+library_size = 1e4
 labels_key = DATA_ARGS.get('labels_key')
 domains_key = DATA_ARGS.get('domains_key')
 n_top_genes = DATA_ARGS.get('n_top_genes')
@@ -62,10 +71,89 @@ device = "cuda:1" if torch.cuda.is_available() else "cpu"
 n_neighbors = DATA_ARGS.get('n_neighbors')
 control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one control domain for simplicity
 holdout_domains = DATA_ARGS.get('holdout_domains')
-out_dir = "/data2/a330d/tmp/"
+out_dir = "/data/a330d/tmp/"
 model_base_path = '.'
 results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
 results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'
+
+
+def create_perturbation_input_matrix(
+    adata: ad.AnnData,
+    perturbation_dict: Dict[str, Dict[str, float]],
+    mask_key: str = 'perturbed_input',
+    save_path: Optional[str] = None,
+    normalize_total: bool = True,
+    operation: str = 'multiply',
+) -> str:
+    """
+    Store a full perturbed expression matrix in adata.obsm[mask_key] with the same
+    normalization as the training data.
+
+    Parameters
+    ----------
+    operation : {'multiply', 'add'}, default 'multiply'
+        How to apply each perturbation value to the existing expression:
+        - 'multiply': perturbed = expression * value
+        - 'add':      perturbed = expression + value
+    """
+    if operation not in ('multiply', 'add'):
+        raise ValueError(
+            f"operation must be 'multiply' or 'add', got '{operation}'"
+        )
+
+    perturbed_adata = adata.copy()
+
+    X = perturbed_adata.X
+    if issparse(X):
+        X = X.toarray()
+    else:
+        X = np.asarray(X)
+
+    perturbed = X.copy()  # start from normalized expression
+
+    for cell_type, gene_values in perturbation_dict.items():
+        cell_mask = perturbed_adata.obs['celltype'] == cell_type
+        cell_indices = np.where(cell_mask)[0]
+
+        if len(cell_indices) == 0:
+            print(f"Warning: No cells found for cell type '{cell_type}'")
+            continue
+
+        print(f"Applying perturbations to {len(cell_indices)} cells of type '{cell_type}'")
+
+        for gene_name, value in gene_values.items():
+            if gene_name in perturbed_adata.var_names:
+                gene_idx = perturbed_adata.var_names.get_loc(gene_name)
+
+                if operation == 'multiply':
+                    perturbed[cell_indices, gene_idx] *= value
+                    print(f"  - Gene '{gene_name}': multiplier = {value}")
+                else:  # 'add'
+                    perturbed[cell_indices, gene_idx] += value
+                    # clip negatives that can arise from additive perturbation
+                    np.clip(
+                        perturbed[cell_indices, gene_idx],
+                        a_min=0,
+                        a_max=None,
+                        out=perturbed[cell_indices, gene_idx],
+                    )
+                    print(f"  - Gene '{gene_name}': addend = {value}")
+            else:
+                print(f"Warning: Gene '{gene_name}' not found in data")
+
+    if normalize_total:
+        target_sum = X.shape[1]
+        row_sums = perturbed.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1  # avoid /0
+        perturbed = perturbed / row_sums * target_sum
+        perturbed_adata.obsm[mask_key] = perturbed
+
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        perturbed_adata.write(save_path)
+        print(f"Saved AnnData with perturbation input to: {save_path}")
+
+    return save_path
 
 
 def predict_for_holdout(
@@ -141,10 +229,13 @@ def main():
             adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
         else:
             raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
-        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.normalize_total(adata, target_sum=library_size)
         sc.pp.log1p(adata)
 
         for holdout_ct in CELLTYPES:
+            # Set holdout set - cells having holdout_ct and holdout_domains
+            mask_holdout = (adata.obs[labels_key] == holdout_ct) & (adata.obs[domains_key].isin(holdout_domains))
+            adata.obs['is_holdout'] = mask_holdout
             print(f"\n{'='*60}")
             print(f"Holdout cell type: {holdout_ct}")
             print(f"{'='*60}")
@@ -167,13 +258,15 @@ def main():
 
             for hd in holdout_domains:
                 # 3. Compute pseudobulk logFC → perturbation dict
-                domain_logfc_df = compute_pseudobulk_logfc(
-                    adata, labels_key, domains_key, control_domain=control_domain, holdout_domain=hd
-                )
+                domain_logfc_df = get_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key)
+                global_logfc_series = get_global_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key, holdout_ct)
+                domain_logfc_df.loc[holdout_ct, global_logfc_series.index] = global_logfc_series
+
                 perturbation_dict = {}
-                s = domain_logfc_df.loc[holdout_ct]
-                top_genes = s.abs().nlargest(top_n_perturb).index.tolist()
-                perturbation_dict[holdout_ct] = s[top_genes].to_dict()
+                for ct in domain_logfc_df.index:
+                    s = domain_logfc_df.loc[ct]
+                    top_g = s.abs().nlargest(top_n_perturb).index.tolist()
+                    perturbation_dict[ct] = s[top_g].to_dict()
 
                 # 4. Create perturbed input matrix
                 adata_test = sc.read_h5ad(test_path)
@@ -182,6 +275,7 @@ def main():
                     perturbation_dict,
                     save_path=perturbed_path,
                     normalize_total=True,
+                    operation='add',
                 )
 
                 # 5. Run GNN inference restricted to holdout cell type
@@ -213,23 +307,33 @@ def main():
                 if n_ref < min_cells or n_crc < min_cells:
                     print(f"  skip {holdout_ct}: too few cells (need ≥ {min_cells})")
                 else:
-                    ref_expr = total_normalize(adata_result[mask_ref].X)
+                    ref_expr = total_normalize(adata_result[mask_ref].X, target_sum=library_size)
                     pert_expr = total_normalize(
                         # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
-                        adata_result[mask_crc].layers["predicted_perturbed"]
+                        adata_result[mask_crc].layers["predicted_perturbed"],
+                        target_sum=library_size,
                     )
-                    obs_expr = total_normalize(adata_result[mask_crc].X)
+                    obs_expr = total_normalize(adata_result[mask_crc].X, target_sum=library_size)
 
                     control = ref_expr
                     target = obs_expr
                     counterfactual = pert_expr
 
-                    pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
-                    rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg)
-                    edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg)
-                    edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, local=True)
-                    mix_idx = mixing_index(observed=target, predicted=counterfactual)
-                    _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=top_n, direction_match_normalize="k")
+                    gt_lfc, cf_lfc, deg = get_lfc(control=control, target=target, counterfactual=counterfactual, n_deg=top_n)
+
+                    spear, _ = spearmanr(gt_lfc[deg], cf_lfc[deg])
+                    pear, _ = pearsonr(gt_lfc[deg], cf_lfc[deg])
+                    prec = precision(gt_lfc, cf_lfc, k=top_n, use_abs=True)
+                    dir_match = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="intersection")
+                    dir_match_k = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="k")
+                    dir_match_gt = direction_match(gt_lfc, cf_lfc, k=top_n, normalize="gt_topk")
+                    mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=library_size)
+                    edist_global = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size)
+                    edist_local = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True)
+                    edist_pca_log = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True, use_pca=True)
+                    edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True, use_pca=True, log1p=False)
+                    rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=library_size)
+                    mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
 
                     results.append(
                         dict(
@@ -245,16 +349,20 @@ def main():
                             precision=prec,
                             direction_match=dir_match,
                             direction_match_k=dir_match_k,
+                            direction_match_gt=dir_match_gt,
                             mixing_index=mix_idx,
                             edistance_global=edist_global,
                             edistance_local=edist_local,
+                            edistance_pca_log=edist_pca_log,
+                            edistance_pca=edist_pca,
                             rmse=rmse,
+                            mse_lfc=mse_lfc,
                             top_n_perturb=top_n_perturb,
                         )
                     )
             
             # Remove spatialprop-generated data files
-            clean_all_dirs()
+            #clean_all_dirs()
 
     df_results = pd.DataFrame(results)
     df_results.to_csv(f"{results_csv_path}", index=False)

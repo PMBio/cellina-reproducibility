@@ -18,11 +18,13 @@ import argparse
 import numpy as np
 import scanpy as sc
 
+from scipy.stats import pearsonr, spearmanr
+
 DEFAULT_SEED = 0
-N_DEG = 200
+N_DEG = 50
 CRC_INFERENCE_BASE_DIR = "/data2/a330d/datasets/crc"
-MERFISH_INFERENCE_BASE_DIR = "/data2/a330d/datasets"
-OUT_DIR_BASE_PATH = "/data2/a330d/datasets"
+MERFISH_INFERENCE_BASE_DIR = "/data/a330d/datasets"
+OUT_DIR_BASE_PATH = "/data/a330d/datasets"
 
 # reuse preprocessing defaults from configs
 sys.path.append('./scripts')
@@ -31,7 +33,7 @@ from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 from train_loo import preprocess_crc, preprocess_merfish, split_indices
 from train_loo import COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY, DEFAULT_HVGS, DEFAULT_CTRL_DOMAINS, DEFAULT_HOLDOUT_DOMAINS, DEFAULT_N_NEIGHBORS
 from utils import set_seed
-from counterfactual_analysis import get_baseline_delta, compute_lfc_metrics, compute_rmse, compute_edistance, mixing_index
+from counterfactual_analysis import get_baseline_delta, compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
 
 
 def parse_args():
@@ -39,7 +41,7 @@ def parse_args():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "concert", "scgen"]) 
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")
@@ -166,6 +168,7 @@ def main():
     recon_fname = f"{model_name}_recon_x.h5ad"
     recon_path = os.path.join(base_dir, recon_fname)    
     recon, latents = None, None
+    adata_full = adata.copy()
     if model_class != 'baseline':
         recon, latents = load_model_predicted(recon_path)
         adata.uns['recon_x'] = recon
@@ -204,13 +207,23 @@ def main():
             target = adata.uns['recon_x'][mask_target.values, :]
         counterfactual = adata.uns['counterfactual_x']
 
-        # Compute stats
-        pear, spear, prec, dir_match, deg = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG)
-        rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
-        edist_global = compute_edistance(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
-        edist_local = compute_edistance(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K, local=True)
+        # Compute stats - ground-truth log fold change (lfc) and counterfactual lfc vectors on top DE genes
+        gt_lfc, cf_lfc, deg = get_lfc(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG)
+
+        spear, _ = spearmanr(gt_lfc[deg], cf_lfc[deg])
+        pear, _ = pearsonr(gt_lfc[deg], cf_lfc[deg])
+        prec = precision(gt_lfc, cf_lfc, k=N_DEG, use_abs=True)
+        dir_match = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="intersection")
+        dir_match_k = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="k")
+        dir_match_gt = direction_match(gt_lfc, cf_lfc, k=N_DEG, normalize="gt_topk")
         mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=COUNTS_PER_K)
-        _, _, _, dir_match_k, _ = compute_lfc_metrics(control=control, target=target, counterfactual=counterfactual, n_deg=N_DEG, direction_match_normalize="k")
+        edist_global = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K)
+        edist_local = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True)
+        edist_pca_log = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True)
+        edist_pca = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
+        rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
+        mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
+
         print("Eval stats computed.")
 
         # Save results json
@@ -229,10 +242,14 @@ def main():
                     'precision': prec,
                     'direction_match': dir_match,
                     'direction_match_k': dir_match_k,
+                    'direction_match_gt': dir_match_gt,
                     'mixing_index': mix_idx,
                     'edistance_global': edist_global,
                     'edistance_local': edist_local,
+                    'edistance_pca_log': edist_pca_log,
+                    'edistance_pca': edist_pca,
                     'rmse': rmse,
+                    'mse_lfc': mse_lfc,
                     }
             stats = {
                 k: float(v) if isinstance(v, np.floating) else v
