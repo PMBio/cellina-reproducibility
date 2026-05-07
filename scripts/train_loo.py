@@ -7,7 +7,7 @@ python scripts/train_loo.py \
   --adata_path <path/to/adata> \
   --holdout_celltype Epithelial \
   --model_class cellina \
-  --model_name cond_z_False_sim_seed_0_ood
+  --model_name cellina
 
 This script mirrors preprocessing and inference steps used in the notebooks.
 
@@ -53,7 +53,6 @@ from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_T
 from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED, N_NEIGHBORS_GRAPH
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
-from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
 from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
 from configs.scgen_config import MODEL_ARGS as SCGEN_MODEL_ARGS, TRAIN_ARGS as SCGEN_TRAIN_ARGS, PLAN_KWARGS as SCGEN_PLAN_KWARGS, DO_COUNTERFACTUAL as SCGEN_DO_COUNTERFACTUAL
 from configs.cellina_ablated_config import MODEL_ARGS as CELLINA_ABLATED_MODEL_ARGS, TRAIN_ARGS as CELLINA_ABLATED_TRAIN_ARGS, PLAN_KWARGS as CELLINA_ABLATED_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_ABLATED_DO_COUNTERFACTUAL
@@ -524,8 +523,8 @@ def run_inference(model,
 
     # Compute counterfactuals
     # for space usage reasons, subset to only relevant (OOD) cell type
-    # cellina-graph needs full adata to sample neighbors correctly
-    if model_class.lower() not in ['concert', 'cellina_graph']:
+    # cellina variants need full adata to sample neighbors correctly
+    if model_class.lower() not in ['cellina_graph', 'cellina']:
         adata = adata[adata.obs[labels_key] == holdout_celltype]
     
     if do_cf:
@@ -539,6 +538,14 @@ def run_inference(model,
             is_holdout_region = adata.obs[domains_key].astype(str) == hd
             mask_target = is_holdout_region & is_holdout_ct
             idx_target = np.where(mask_target.values)[0]
+
+            # "neighbour_indices" are indices of the neighbors of idx_target cells
+            conn = adata.obsp["spatial_connectivities"]
+            sub_conn = conn[idx_target]                # rows for target cells
+            neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
+            neighbor_indices = np.unique(neighbor_indices)
+            # remove neighbors having same ct as holdout_ct
+            neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
 
             if model_class.lower() == 'concert':
                 # Prepare target cells (holdout & matching coarse_type)
@@ -578,21 +585,15 @@ def run_inference(model,
                     "indices": idx_control,
                     "batch_size": batch_size,
                     "seed": 0,
+                    "neighbour_indices": neighbor_indices
                 }
                 if model_class.lower() == 'cellina_graph':
-                    args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
-                    # "neighbour_indices" are indices of the neighbors of idx_target cells
-                    conn = adata.obsp["spatial_connectivities"]
-                    sub_conn = conn[idx_target]                # rows for target cells
-                    neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
-                    neighbor_indices = np.unique(neighbor_indices)
-                    args_gex["neighbour_indices"] = neighbor_indices
+                    args_gex["n_neighbors_per_seed"] = 50
                 else:
-                    args_gex["adata"] = adata
-                    args_gex["neighbour_indices"] = idx_target
+                    args_gex['precomputed'] = False
                 
                 cf_counts = model.get_counterfactual_expression(**args_gex)
-                args_latents = args_gex.copy() # Default gets 'shifted' latents, can set 'z' or 's' here
+                args_latents = args_gex.copy()
                 cf_latents = model.get_counterfactual_latents(**args_latents)
 
             if model_class.lower() == 'scgen':
