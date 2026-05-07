@@ -449,7 +449,7 @@ def run_inference(model,
                     "neighbour_indices": neighbor_indices
                 }
                 if model_class.lower() == 'cellina_graph':
-                    args_gex["n_neighbors_per_seed"] = 50
+                    args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
                 else:
                     args_gex['precomputed'] = False
                 

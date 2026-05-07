@@ -36,5 +36,5 @@ PLAN_KWARGS = {
 
 # Enable counterfactual behaviour by default for Cellina
 DO_COUNTERFACTUAL = True
-N_NEIGHBORS_PER_SEED = 20  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
+N_NEIGHBORS_PER_SEED = 50  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
 N_NEIGHBORS_GRAPH = 50 # number of neighbors to compute adjacency matrix
