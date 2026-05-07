@@ -32,6 +32,7 @@ OUT_DIR_BASE_PATH = os.path.join(DATA_ROOT, "datasets")
 sys.path.append('./scripts')
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
+from configs.cellina_graph_config import N_NEIGHBORS_GRAPH
 from train_loo import preprocess_crc, preprocess_merfish, split_indices
 from train_loo import COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY, DEFAULT_HVGS, DEFAULT_CTRL_DOMAINS, DEFAULT_HOLDOUT_DOMAINS, DEFAULT_N_NEIGHBORS
 from utils import set_seed
@@ -138,7 +139,7 @@ def main():
     domains_key = DATA_ARGS.get('domains_key', DEFAULT_DOMAINS_KEY)
     control_domains = DATA_ARGS.get('control_domains', DEFAULT_CTRL_DOMAINS)
     holdout_domains = DATA_ARGS.get('holdout_domains', DEFAULT_HOLDOUT_DOMAINS)
-    n_neighbors = 10 if model_class=='cellina_graph' else DATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
+    n_neighbors = N_NEIGHBORS_GRAPH if model_class=='cellina_graph' else DATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
 
     if dataset_name == 'crc':
         adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
