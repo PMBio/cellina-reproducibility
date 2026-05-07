@@ -101,7 +101,7 @@ def get_counterfactual_counts(adata, model_class, labels_key, domains_key, holdo
             cf_matrix, cf_latents = load_model_predicted(cf_path)
         else:
             is_holdout_domain = adata.obs[domains_key] == holdout_domain
-            is_holdout_ct = adata_train.obs[labels_key].astype(str) == holdout_ct
+            is_holdout_ct = adata.obs[labels_key].astype(str) == holdout_ct
             mask_target = is_holdout_domain & is_holdout_ct
             cf_matrix = recon[mask_target.values, :]
             cf_latents = latents[mask_target.values, :]
