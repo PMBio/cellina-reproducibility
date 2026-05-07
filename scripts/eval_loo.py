@@ -43,7 +43,7 @@ def parse_args():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "concert", "scgen"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen"]) 
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")

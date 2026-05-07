@@ -23,7 +23,6 @@ import numpy as np
 import scanpy as sc
 import anndata as ad
 import sys
-import torch
 
 DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
@@ -62,7 +61,7 @@ def parse_args():
     p.add_argument("--dataset_name", required=True, choices=['crc', 'merfish'], help="Name of dataset (used for configs)")
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'scgen'], help="one of: cellina, cpa, cellina_graph, concert, scgen")
+    p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'scgen'], help="one of: cellina, cpa, cellina_graph, scgen")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
     p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
 
@@ -317,96 +316,8 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
                   }
         model.train(**train_args, plan_kwargs=plan_kwargs)
 
-    elif mc == 'concert':
-        # CONCERT: instantiate and train using data-derived positional + attribute matrices.
-        try:
-            import sys
-            sys.path.append(os.environ.get("CONCERT_SRC", "./src"))
-            from concert_map import CONCERT
-        except Exception as e:
-            raise RuntimeError("CONCERT is not importable; ensure CONCERT code is on PYTHONPATH (see notebooks/concert.ipynb)") from e
-
-        # build pos (spatial + one-hot batch) and simple cell_atts matrix
-        # spatial coords
-        loc = np.asarray(adata.obsm['spatial']).astype(np.float32)
-        from sklearn.preprocessing import MinMaxScaler
-        scaler_sp = MinMaxScaler()
-        loc_range = 20
-        loc = scaler_sp.fit_transform(loc) * loc_range
-        loc_dim = loc.shape[1]
-        
-        # use obs.sid as batch/perturbation codes
-        sid_vals = adata.obs[batch_key].astype(str).values
-        unique_sids = np.unique(sid_vals)
-        sid_to_code = {s: i for i, s in enumerate(sorted(unique_sids))}
-        batch_code_full = np.array([sid_to_code[s] for s in sid_vals], dtype=int)
-
-        # coarse_type / labels -> code
-        ct_vals = adata.obs[labels_key].astype(str).values
-        unique_cts = np.unique(ct_vals)
-        ct_to_code = {c: i for i, c in enumerate(sorted(unique_cts))}
-        ct_code = np.array([ct_to_code[c] for c in ct_vals], dtype=int)
-
-        # map tissue regions (obs.typ) -> contiguous codes across full adata
-        tissue_names = adata.obs[domains_key].astype(str).values
-        unique_tissues = np.unique(tissue_names)
-        tissue_name_to_code = {name: i for i, name in enumerate(sorted(unique_tissues))}
-        tissue_code_full = np.array([tissue_name_to_code[s] for s in tissue_names], dtype=int)
-
-        # full cell attributes (tissue, batch)
-        cell_atts_full = np.stack([tissue_code_full, batch_code_full, ct_code], axis=1).astype(int)
-        n_batch_full = len(np.unique(batch_code_full))
-        batch_full = np.eye(n_batch_full, dtype='float32')[batch_code_full]
-
-        pos = np.concatenate((loc, batch_full), axis=1).astype(np.float32)
-        cutoff = np.ones(loc.shape[0], dtype=np.float32) * 0.5
-
-        # Prepare training and testing slices
-        train_idx = np.concatenate([splits[0], splits[1]])
-        test_idx = splits[2]
-
-        from preprocess import normalize
-        adata = normalize(adata, size_factors=True, normalize_input=True, logtrans_input=True)
-
-        # build kernel_scale & inducing points to match loc_dim and n_batch_full
-        kernel_scale_scalar = 10.0
-        kernel_scale_re = np.array([[kernel_scale_scalar] * loc_dim] * n_batch_full, dtype=float)
-        inducing_point_steps = 6
-        eps = 1e-5
-        initial_inducing_points_re = np.mgrid[0:(1+eps):(1./inducing_point_steps), 0:(1+eps):(1./inducing_point_steps)].reshape(2, -1).T * loc_range
-        initial_inducing_points_batch = np.zeros((initial_inducing_points_re.shape[0], n_batch_full), dtype=float)
-        initial_inducing_points_batch[:, 0] = 1.0
-        initial_inducing_points_re = np.concatenate((initial_inducing_points_re, initial_inducing_points_batch), axis=1).astype('float32')
-        
-        # Prepare kwargs for CONCERT constructor: allow model_args dict to supply specific values
-        concert_kwargs = dict(model_args or {})
-        # ensure required fields exist (num_genes, cell_atts, initial_inducing_points etc can be provided)
-        concert_kwargs.setdefault('cell_atts', cell_atts_full[train_idx])
-        concert_kwargs.setdefault('num_genes', adata.n_vars)
-        concert_kwargs.setdefault('N_train', len(train_idx))
-        concert_kwargs.setdefault('mask_cutoff', cutoff[train_idx])
-        concert_kwargs.setdefault('kernel_scale', kernel_scale_re)
-        concert_kwargs.setdefault('initial_inducing_points', initial_inducing_points_re)
-        concert_kwargs.setdefault('n_batch', n_batch_full)
-        
-        # instantiate
-        model = CONCERT(**concert_kwargs)
-        # call train_model with expected signature from notebook
-        train_kwargs = dict(train_args or {})
-        train_kwargs['model_weights'] = f'{save_dir}/concert_model.pt'
-        try:
-            model.train_model(
-                pos=pos[train_idx],
-                ncounts=_to_array(adata.X)[train_idx].astype("float32"),
-                raw_counts=_to_array(adata.layers['counts'][train_idx]).astype("float32"),
-                size_factors=adata.obs.get('size_factors', None)[train_idx],
-                batch=batch_full[train_idx],
-                **train_kwargs,
-            )
-        except Exception as e:
-            print("CONCERT training filed with error: ", e)
     else:
-        raise ValueError(f"Unsupported model_class: {model_class}. Supported: cellina, cpa, cellina_graph, concert")
+        raise ValueError(f"Unsupported model_class: {model_class}. Supported: cellina, cpa, cellina_graph, scgen")
 
     # try saving model with common APIs
     saved_model_path = save_dir
@@ -426,16 +337,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
     except Exception as e:
         print("Warning: saving model raised:", e)
 
-    # For concert, return everything that will be used for inference to avoid redundant code
-    extras = {}
-    if mc == 'concert':
-        extras = {
-            'pos': pos,
-            'cell_atts': cell_atts_full,
-            'train_idx': train_idx,
-            'test_idx': test_idx,
-        }
-    return model, extras
+    return model
 
 
 def _get_latents(model, adata, model_class, batch_size=DEFAULT_BATCH_SIZE):
@@ -461,7 +363,6 @@ def run_inference(model,
                   labels_key=DEFAULT_LABELS_KEY, 
                   domains_key=DEFAULT_DOMAINS_KEY, 
                   return_normalized=False, 
-                  extras={},
                   control_domains=DEFAULT_CTRL_DOMAINS,
                   holdout_domains=DEFAULT_HOLDOUT_DOMAINS):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
@@ -475,34 +376,16 @@ def run_inference(model,
 
     # full reconstruction
     try:
-        recon_all = None
-        if model_class.lower() == 'concert':
-            # Get positional and attribute matrices as in training
-            pos = extras['pos']
-            cell_atts = extras['cell_atts']
-            train_idx = extras['train_idx']
-            test_idx = extras['test_idx']
-
-            sample_indices_train = torch.arange(pos[train_idx].shape[0], dtype=torch.int)
-            sample_indices_test  = torch.arange(pos[test_idx].shape[0], dtype=torch.int)
-
-            denoised, _ = model.batching_denoise_counts(X=pos[train_idx], 
-                                                        sample_index=sample_indices_train, 
-                                                        cell_atts=cell_atts[train_idx], 
-                                                        batch_size=batch_size, 
-                                                        n_samples=25)
-            denoised = denoised / (denoised.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
-            recon_all = _to_array(denoised)
-        else:
-            recon_all = _reconstruct_model_output(model, 
-                                                  adata[adata.obs[labels_key] == holdout_celltype], 
-                                                  model_class, 
-                                                  return_normalized=return_normalized, 
-                                                  batch_size=batch_size)
-            latents = _get_latents(model, 
-                                   adata[adata.obs[labels_key] == holdout_celltype], 
-                                   model_class, 
-                                   batch_size)
+        recon_all = None        
+        recon_all = _reconstruct_model_output(model, 
+                                                adata[adata.obs[labels_key] == holdout_celltype], 
+                                                model_class, 
+                                                return_normalized=return_normalized, 
+                                                batch_size=batch_size)
+        latents = _get_latents(model, 
+                                adata[adata.obs[labels_key] == holdout_celltype], 
+                                model_class, 
+                                batch_size)
     except Exception as e:
         print('Reconstruction failed:', e)
         recon_all = None
@@ -511,10 +394,7 @@ def run_inference(model,
     out_recon_path = None
     if recon_all is not None:
         out_recon_path = os.path.join(out_dir, f"{model_name}_recon_x.h5ad")
-        if model_class.lower() == 'concert':
-            adata_with_obs = adata[extras['train_idx']].copy()
-        else:
-            adata_with_obs = adata[adata.obs[labels_key] == holdout_celltype].copy()
+        adata_with_obs = adata[adata.obs[labels_key] == holdout_celltype].copy()
         save_recon_adata(adata_with_obs, 
                          recon_all, 
                          out_recon_path, 
@@ -546,25 +426,6 @@ def run_inference(model,
             neighbor_indices = np.unique(neighbor_indices)
             # remove neighbors having same ct as holdout_ct
             neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
-
-            if model_class.lower() == 'concert':
-                # Prepare target cells (holdout & matching coarse_type)
-                labels = adata.obs[labels_key].astype(str)
-                mask_target = (adata.obs['is_holdout']) & (labels == holdout_celltype)
-                if mask_target.sum() == 0:
-                    raise RuntimeError('No target cells for counterfactual in CONCERT inference')
-
-                # call counterfactualPrediction
-                perturbed_counts, _ = model.counterfactualPrediction(X=pos[test_idx], 
-                                                                        sample_index=sample_indices_test, 
-                                                                        cell_atts=cell_atts[test_idx], 
-                                                                        batch_size=batch_size, 
-                                                                        n_samples=25, 
-                                                                        perturb_cell_id=[], 
-                                                                        target_cell_tissue=cell_atts[test_idx][:,0], 
-                                                                        target_cell_perturbation=cell_atts[test_idx][:,1])
-                cf_counts = _to_array(perturbed_counts)
-                cf_latents = None
                 
             if model_class.lower() == 'cpa':
                 from cpa._utils import CPA_REGISTRY_KEYS
@@ -638,8 +499,6 @@ def _load_model(save_dir, model_class, adata, splits=None):
     if model_class.lower() == 'cellina_graph':
         from cellina_graph import CellinaModel
         model = CellinaModel.load(save_dir, adata)
-    if model_class.lower() == 'concert':
-        ...
     
     print(f"{model_class} loaded model from {save_dir}")
     return model
@@ -695,11 +554,6 @@ def main():
         train_args = CELLINA_GRAPH_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_GRAPH_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_GRAPH_DO_COUNTERFACTUAL
-    elif mc == 'concert':
-        model_args = CONCERT_MODEL_ARGS.copy()
-        train_args = CONCERT_TRAIN_ARGS.copy()
-        plan_kwargs = CONCERT_PLAN_KWARGS.copy()
-        do_cf_default = CONCERT_DO_COUNTERFACTUAL
     elif mc == 'scgen':
         model_args = SCGEN_MODEL_ARGS.copy()
         train_args = SCGEN_TRAIN_ARGS.copy()
@@ -715,7 +569,7 @@ def main():
     print("Loading adata:", args.adata_path)
     adata = sc.read(args.adata_path)
 
-    # Subset the data - Put in for scgen slide 120, otherwise segmentation fault for (probably) RAM/VRAM reasons
+    # Subset the data - Put in for scgen slides 120, 210 otherwise segmentation fault for (probably) RAM/VRAM reasons
     if (sid == 'crc_120' and mc == 'scgen'):
         adata = subset_adata(adata, proportion=0.3, random_state=0)
     if (sid == 'crc_210' and mc == 'scgen'):
@@ -769,9 +623,8 @@ def main():
                             adata=adata,
                             splits=splits
                             )
-        extras = {}
     else:
-        model, extras = train_model(adata,
+        model = train_model(adata,
                             args.model_class, 
                             model_args, 
                             train_args, 
@@ -795,7 +648,6 @@ def main():
                                     labels_key=labels_key,
                                     domains_key=domains_key,
                                     return_normalized=normalize_counts,
-                                    extras=extras,
                                     control_domains=control_domains,
                                     holdout_domains=holdout_domains,
                                     )
