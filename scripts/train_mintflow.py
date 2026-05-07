@@ -1,12 +1,10 @@
 import sys
 
-sys.path.append('./scripts')
+sys.path.append('../../scripts')
 
 import scanpy as sc
 import os
 from tqdm import tqdm
-
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 import argparse
 
 import mintflow
@@ -17,19 +15,19 @@ from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 from train_loo import preprocess_crc, preprocess_merfish
 
 set_seed(0)
-DATASET_NAME = "merfish"  # or "merfish"
+DATASET_NAME = "merfish"  # or "crc"
 
-CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
+CRC_BASE_PATH = "/../../datasets/crc/raw_zenodo"
 CRC_SLIDES = ['crc_242', 'crc_232', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 
-MERFISH_BASE_PATH = os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain")
+MERFISH_BASE_PATH = "/../../datasets/MERFISH_mouse_brain"
 MERFISH_SLIDES = ['C57BL6J-2.036', 'C57BL6J-2.039', 'C57BL6J-2.041']
 
 ADATA_BASE_PATH = CRC_BASE_PATH if DATASET_NAME == "crc" else MERFISH_BASE_PATH
 SLIDES = CRC_SLIDES if DATASET_NAME == "crc" else MERFISH_SLIDES
 DATA_ARGS = ADATA_CRC_ARGS if DATASET_NAME == "crc" else ADATA_MERFISH_ARGS
 
-NUM_EPOCHS = 1 #31
+NUM_EPOCHS = 100
 BATCH_SIZE = 2048
 LABELS_KEY = DATA_ARGS.get('labels_key')
 DOMAINS_KEY = DATA_ARGS.get('domains_key')
@@ -38,8 +36,8 @@ PATIENT_ID = DATA_ARGS.get('batch_key')
 N_NEIGHBORS = 5
 CHECKPOINT_INTERVAL = 10
 USE_WANDB = 'False'
-MODEL_OUTPUT_PATH = os.path.join(DATA_ROOT, "data/ood/trained")
-ADATA_SAVE_PATH = os.path.join(DATA_ROOT, f"datasets/{DATASET_NAME}/processed")
+MODEL_OUTPUT_PATH = "/../../data/ood/trained"
+ADATA_SAVE_PATH = f"/../../datasets/{DATASET_NAME}/processed"
 X_POS = 'CenterX_global_px'
 Y_POS = 'CenterY_global_px'
 
