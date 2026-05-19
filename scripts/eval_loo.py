@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = "/data2/a330d" #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from scipy.stats import pearsonr, spearmanr
 

@@ -24,7 +24,7 @@ import scanpy as sc
 import anndata as ad
 import sys
 
-DATA_ROOT = "/data2/a330d" #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
