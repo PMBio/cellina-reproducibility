@@ -535,12 +535,12 @@ def main():
         train_args = CELLINA_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_DO_COUNTERFACTUAL
-        if model_name == 'cellina-mmd':
+        if 'mmd' in model_name:
             model_args = CELLINA_MMD_MODEL_ARGS.copy()
             train_args = CELLINA_MMD_TRAIN_ARGS.copy()
             plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
             do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
-        if model_name == 'cellina-ablated':
+        if 'ablated' in model_name:
             model_args = CELLINA_ABLATED_MODEL_ARGS.copy()
             train_args = CELLINA_ABLATED_TRAIN_ARGS.copy()
             plan_kwargs = CELLINA_ABLATED_PLAN_KWARGS.copy()
