@@ -33,7 +33,7 @@ sys.path.append('./scripts')
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 from configs.cellina_graph_config import N_NEIGHBORS_GRAPH
-from train_loo import preprocess_crc, preprocess_merfish, split_indices
+from train_loo import preprocess_crc, preprocess_merfish, split_indices, preprocess_spatial_features
 from train_loo import COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY, DEFAULT_HVGS, DEFAULT_CTRL_DOMAINS, DEFAULT_HOLDOUT_DOMAINS, DEFAULT_N_NEIGHBORS
 from utils import set_seed
 from counterfactual_analysis import get_baseline_delta, compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
@@ -142,9 +142,9 @@ def main():
     n_neighbors = N_NEIGHBORS_GRAPH if model_class=='cellina_graph' else DATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
 
     if dataset_name == 'crc':
-        adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        adata = preprocess_crc(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
     elif dataset_name == 'merfish':
-        adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        adata = preprocess_merfish(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
     else:
         raise ValueError(f"Unknown dataset_name: {dataset_name}. Supported: crc, merfish")
 
@@ -157,6 +157,8 @@ def main():
                                                  seed=DEFAULT_SEED)
     
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+    step_size_px = 0.12028 if dataset_name == 'crc' else 0.109
+    adata = preprocess_spatial_features(adata, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=test_idx)
 
     # build expected paths for recon and counterfactual
     sid = os.path.splitext(os.path.basename(adata_path))[0]

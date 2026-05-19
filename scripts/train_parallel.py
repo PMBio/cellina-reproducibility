@@ -31,37 +31,37 @@ PY = sys.executable
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
-DATASET_NAME = "merfish"  # or "merfish"
+DATASET_NAME = "crc"  # or "merfish"
 
 CRC_PATHS = [
-    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
-    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_221.h5ad"),
-    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_231.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_221.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_231.h5ad"),
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_232.h5ad"),
-    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_242.h5ad"),
-    #os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_120.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_242.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_120.h5ad"),
 ]
 
 CRC_HOLDOUTS = [
-    #"Endothelial",
-    #"Epithelial",
+    "Endothelial",
+    "Epithelial",
     "Fibroblast",
-    #"Myeloid",
-    #"T_cell",
+    "Myeloid",
+    "T_cell",
 ]
 
 MERFISH_PATHS = [
-    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
-    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
     os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad"),
 ]
 
 MERFISH_HOLDOUTS = [
     'glutamatergic neuron',
-    #'oligodendrocyte',
-    #'astrocyte',
-    #'GABAergic neuron',
-    #'endothelial cell',
+    'oligodendrocyte',
+    'astrocyte',
+    'GABAergic neuron',
+    'endothelial cell',
 ]
 
 PATHS = CRC_PATHS if DATASET_NAME == "crc" else MERFISH_PATHS
@@ -72,15 +72,18 @@ HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    {"class": "cellina", "name": "cellina"},
+    #{"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
     #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
     #{"class": "cellina_graph", "name": "cellina-graph"},
     #{"class": "concert", "name": "concert"},
-    {"class": "scgen", "name": "scgen"},
+    #{"class": "scgen", "name": "scgen"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-ablated"},
+    {"class": "cellina", "name": "cellina-W"},
+    {"class": "cellina", "name": "cellina-ablated-W"},
+    {"class": "cellina_graph", "name": "cellina-graph-W"},
 ]
 
 

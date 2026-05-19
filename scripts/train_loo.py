@@ -163,7 +163,7 @@ def split_indices(
     return train_idx, val_idx, test_idx
 
 
-def _preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, step_size_px=0.1):
+def _preprocess_adata(adata, n_top_genes=2000, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
     """Apply preprocessing steps from counterfactuals notebook.
     Modifies and returns adata.
     """
@@ -181,21 +181,13 @@ def _preprocess_adata(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAUL
     adata.layers['counts'] = adata.X.copy()
     sc.pp.highly_variable_genes(adata, layer='counts', flavor='seurat_v3', n_top_genes=n_top_genes, subset=True)
     sc.pp.normalize_total(adata, target_sum=1e4)
-    sc.pp.log1p(adata)
-
-    try:
-        from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
-        spatial_neighbors(adata, bandwidth=100 / step_size_px, max_neighbours=n_neighbors, standardize=False)
-        compute_spatial_features(adata)
-    except Exception as e:
-        print("Warning: cellina spatial pre-processing failed or cellina not available:", e)
-    
+    sc.pp.log1p(adata)    
     adata.X = adata.layers['counts'].copy()
 
     return adata
 
 
-def preprocess_crc(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
+def preprocess_crc(adata, n_top_genes=2000, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
     # Add label column
     if 'coarse_type' not in adata.obs.columns or adata.obs['coarse_type'].isna().any():
         from _labels_to_coarse import LABEL_TO_COARSE as LMAP
@@ -213,23 +205,32 @@ def preprocess_crc(adata, n_top_genes=2000, n_neighbors=50, labels_key=DEFAULT_L
 
     return _preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
-                             n_neighbors=n_neighbors, 
                              labels_key=labels_key, 
-                             domains_key=domains_key, 
-                             step_size_px=0.12028)
+                             domains_key=domains_key)
 
 
-def preprocess_merfish(adata, n_top_genes=1120, n_neighbors=50, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
+def preprocess_merfish(adata, n_top_genes=1120, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
     adata.obsm["spatial"] = adata.obsm["X_spatial_coords"]
     adata.X = adata.raw.X.copy()
     adata.layers['counts'] = adata.raw.X.copy()
 
     return _preprocess_adata(adata, 
                              n_top_genes=n_top_genes, 
-                             n_neighbors=n_neighbors, 
                              labels_key=labels_key, 
-                             domains_key=domains_key, 
-                             step_size_px=0.109)
+                             domains_key=domains_key)
+
+
+def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_indices=None):
+    try:
+        from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
+        adata.obsp['spatial_connectivities_orig'] = spatial_neighbors(adata, bandwidth=100 / step_size_px, max_neighbours=n_neighbors, standardize=False, inplace=False)
+        
+        # Recompute with test indices masked out, to avoid data leakage in spatial features for test set
+        spatial_neighbors(adata, bandwidth=100 / step_size_px, max_neighbours=n_neighbors, standardize=False, test_indices=test_indices)
+        compute_spatial_features(adata)
+    except Exception as e:
+        print("Warning: cellina spatial pre-processing failed or cellina not available:", e)
+    return adata
 
 
 def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwargs=None, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY, splits=None):
@@ -420,7 +421,7 @@ def run_inference(model,
             idx_target = np.where(mask_target.values)[0]
 
             # "neighbour_indices" are indices of the neighbors of idx_target cells
-            conn = adata.obsp["spatial_connectivities"]
+            conn = adata.obsp["spatial_connectivities_orig"]
             sub_conn = conn[idx_target]                # rows for target cells
             neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
             neighbor_indices = np.unique(neighbor_indices)
@@ -534,12 +535,12 @@ def main():
         train_args = CELLINA_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_DO_COUNTERFACTUAL
-        if model_name == 'cellina-mmd':
+        if 'mmd' in model_name:
             model_args = CELLINA_MMD_MODEL_ARGS.copy()
             train_args = CELLINA_MMD_TRAIN_ARGS.copy()
             plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
             do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
-        if model_name == 'cellina-ablated':
+        if 'ablated' in model_name:
             model_args = CELLINA_ABLATED_MODEL_ARGS.copy()
             train_args = CELLINA_ABLATED_TRAIN_ARGS.copy()
             plan_kwargs = CELLINA_ABLATED_PLAN_KWARGS.copy()
@@ -592,9 +593,9 @@ def main():
     n_neighbors = N_NEIGHBORS_GRAPH if mc=='cellina_graph' else DATA_ARGS.get('n_neighbors', DEFAULT_N_NEIGHBORS)
 
     if dataset_name == 'crc':
-        adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        adata = preprocess_crc(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
     elif dataset_name == 'merfish':
-        adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+        adata = preprocess_merfish(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
     else:
         raise ValueError(f"Unknown dataset_name: {dataset_name}. Supported: crc, merfish")
 
@@ -605,9 +606,12 @@ def main():
                                                  domains_key=domains_key,
                                                  holdout_domains=holdout_domains,
                                                  seed=DEFAULT_SEED)
-    
     splits = (train_idx, val_idx, test_idx)
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+
+    # preprocess spatial features after splitting to avoid data leakage in spatial features for test set
+    step_size_px = 0.12028 if dataset_name == 'crc' else 0.109
+    adata = preprocess_spatial_features(adata, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=test_idx)
 
     # decide whether to run counterfactuals from config default
     do_cf = bool(do_cf_default)
