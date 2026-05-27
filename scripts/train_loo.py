@@ -163,7 +163,7 @@ def split_indices(
     return train_idx, val_idx, test_idx
 
 
-def _preprocess_adata(adata, n_top_genes=2000, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
+def preprocess_adata(adata, n_top_genes=2000, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
     """Apply preprocessing steps from counterfactuals notebook.
     Modifies and returns adata.
     """
@@ -222,7 +222,7 @@ def preprocess_merfish(adata, n_top_genes=1120, labels_key=DEFAULT_LABELS_KEY, d
 
 def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_indices=None):
     try:
-        from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
+        from cellina_graph._spatial_utils import spatial_neighbors, compute_spatial_features
         adata.obsp['spatial_connectivities_orig'] = spatial_neighbors(adata, bandwidth=100 / step_size_px, max_neighbours=n_neighbors, standardize=False, inplace=False)
         
         # Recompute with test indices masked out, to avoid data leakage in spatial features for test set
