@@ -24,7 +24,7 @@ import scanpy as sc
 import anndata as ad
 import sys
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -179,9 +179,7 @@ def _preprocess_adata(adata, n_top_genes=2000, labels_key=DEFAULT_LABELS_KEY, do
     sc.pp.filter_genes(adata, min_counts=3)
 
     adata.layers['counts'] = adata.X.copy()
-    sc.pp.highly_variable_genes(adata, layer='counts', flavor='seurat_v3', n_top_genes=n_top_genes, subset=True)
-    sc.pp.normalize_total(adata, target_sum=1e4)
-    sc.pp.log1p(adata)    
+    sc.pp.highly_variable_genes(adata, layer='counts', flavor='seurat_v3', n_top_genes=n_top_genes, subset=True)    
     adata.X = adata.layers['counts'].copy()
 
     return adata
@@ -230,6 +228,7 @@ def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_in
         compute_spatial_features(adata)
     except Exception as e:
         print("Warning: cellina spatial pre-processing failed or cellina not available:", e)
+    adata.X = adata.layers['counts'].copy()
     return adata
 
 
