@@ -129,6 +129,7 @@ def split_indices(
     domains_key=DEFAULT_DOMAINS_KEY,
     holdout_domains=DEFAULT_HOLDOUT_DOMAINS,
     seed=DEFAULT_SEED,
+    holdout_full_domain=False,
 ):
     """Create train/val/test splits consistent with notebooks.
 
@@ -142,7 +143,11 @@ def split_indices(
     domain_str = adata.obs[domains_key].astype(str)
     is_holdout_domain = domain_str.apply(lambda d: any(hd in d for hd in holdout_domains))
     is_holdout_ct = adata.obs[labels_key].astype(str) == holdout_celltype
-    test_mask = is_holdout_domain & is_holdout_ct
+
+    if holdout_full_domain:
+        test_mask = is_holdout_domain
+    else:
+        test_mask = is_holdout_domain & is_holdout_ct
 
     all_idx = np.arange(adata.n_obs)
     test_idx = np.where(test_mask.values)[0]
