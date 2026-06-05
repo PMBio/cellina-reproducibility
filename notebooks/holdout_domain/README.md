@@ -31,7 +31,6 @@ Holdout cell types evaluated:
 | Model | Key hyperparameters |
 |-------|-------------------|
 | **Cellina** | `n_latent=64`, `gene_likelihood=nb`, `n_layers=2`, 100 epochs, lr=1e-3 |
-| **Cellina-GAT** | Same as above with spatial graph connectivity |
 | **SpatialProp** | GNN, `k_hop=2`, `augment_hop=2`, `loss=weightedl1`, 100 epochs, lr=1e-3 |
 
 ## How to Run
