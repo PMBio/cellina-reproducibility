@@ -24,7 +24,7 @@ import scanpy as sc
 import anndata as ad
 import sys
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -224,6 +224,8 @@ def preprocess_merfish(adata, n_top_genes=1120, labels_key=DEFAULT_LABELS_KEY, d
 
 
 def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_indices=None):
+    sc.pp.normalize_total(adata, target_sum=1e4)
+    sc.pp.log1p(adata)
     try:
         from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
         adata.obsp['spatial_connectivities_orig'] = spatial_neighbors(adata, bandwidth=100 / step_size_px, max_neighbours=n_neighbors, standardize=False, inplace=False)

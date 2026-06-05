@@ -220,5 +220,6 @@ spatialprop/output/
 *.pth
 *.json
 *.svg
+*.tex
 output/
 notebooks/neighb_perts/results/
