@@ -337,7 +337,7 @@ def main():
                             control_domain=control_domain,
                             target_domain=hd,
                             n_deg=top_n,
-                            model_name="spatialprop_ood",
+                            model_name="spatialprop-ood",
                             holdout_celltype=holdout_ct,
                             spearman=spear,
                             pearson=pear,
