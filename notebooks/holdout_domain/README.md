@@ -22,9 +22,11 @@ Holdout cell types evaluated:
 
 | File | Purpose |
 |------|---------|
-| `cellina_tva.ipynb` | Train & evaluate Cellina (standard + GAT) and produce comparison plots |
+| `cellina_tva.ipynb` | Train & evaluate Cellina (standard + GAT); writes `ood_cellina_{dataset}_DEG_50.csv` |
+| `baseline_tva.ipynb` | CRC mean-shift baseline (no training): apply the REF→CRC shift to predict TVA; writes `ood_baseline_crc_DEG_50.csv` |
 | `spatialprop_train.py` | Train SpatialProp GNN models (run before eval) |
 | `spatialprop_eval.py` | Evaluate pre-trained SpatialProp models and write results CSV |
+| `compare_methods_tva.ipynb` | Re-plot all methods + baseline from the per-method results CSVs |
 
 ## Models
 
@@ -57,7 +59,21 @@ Writes results to `../../results/ood_spatialprop_{dataset}_DEG_50.csv`.
 ### 3. Run Cellina notebook
 
 Open `cellina_tva.ipynb` and run all cells.  Writes results to
-`../../results/ood_cellina_{dataset}_DEG_50.csv` and produces
-`cellina_tva_metrics.svg`.
+`../../results/ood_cellina_{dataset}_DEG_50.csv`.
 
 Set `DATASET_NAME = "crc"` or `"merfish"` in the notebook to switch datasets.
+
+### 4. Run the CRC mean-shift baseline (CRC only)
+
+Open `baseline_tva.ipynb` and run all cells.  Applies the observed REF→CRC mean
+shift (`cf = (REF + 1) · 2^δ − 1`, `δ = log2(mean(CRC)/mean(REF))`) to the REF
+control cells and evaluates against held-out TVA cells.  No training required.
+Writes `../../results/ood_baseline_crc_DEG_50.csv`.  The same shift logic backs
+the `baseline` mode of `scripts/eval_loo.py`.
+
+### 5. Compare all methods
+
+Open `compare_methods_tva.ipynb` and run all cells.  It concatenates whichever
+`ood_*_{dataset}_DEG_50.csv` files exist and plots Spearman ρ, Pearson r, signed
+precision, E-distance (PCA, log) and MSE LFC side by side, saving
+`compare_methods_tva_{dataset}.svg`.

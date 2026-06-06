@@ -89,8 +89,8 @@ def get_counterfactual_counts(adata, model_class, labels_key, domains_key, holdo
         adata_control = adata_train[is_holdout_ct & is_in_control_domains]
         counts = _to_dense(adata_control.layers['counts'])
 
-        # For log2, but we compute delta on log1 so just take exp
-        cf_matrix = (counts + 1) * np.exp(delta) - 1
+        # delta is a log2 fold change (see get_baseline_delta), so rescale with 2 ** delta
+        cf_matrix = (counts + 1) * (2 ** delta) - 1
         cf_matrix = np.clip(cf_matrix, a_min=0, a_max=None)
         cf_matrix = cf_matrix / (cf_matrix.sum(axis=1, keepdims=True) + 1e-8) * COUNTS_PER_K
     # If not baseline - works for cellina-like, cpa, scgen
