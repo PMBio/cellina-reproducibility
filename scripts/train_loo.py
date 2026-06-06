@@ -52,7 +52,6 @@ from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_T
 from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED, N_NEIGHBORS_GRAPH
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
-from configs.cellina_mmd_config import MODEL_ARGS as CELLINA_MMD_MODEL_ARGS, TRAIN_ARGS as CELLINA_MMD_TRAIN_ARGS, PLAN_KWARGS as CELLINA_MMD_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_MMD_DO_COUNTERFACTUAL
 from configs.scgen_config import MODEL_ARGS as SCGEN_MODEL_ARGS, TRAIN_ARGS as SCGEN_TRAIN_ARGS, PLAN_KWARGS as SCGEN_PLAN_KWARGS, DO_COUNTERFACTUAL as SCGEN_DO_COUNTERFACTUAL
 from configs.cellina_ablated_config import MODEL_ARGS as CELLINA_ABLATED_MODEL_ARGS, TRAIN_ARGS as CELLINA_ABLATED_TRAIN_ARGS, PLAN_KWARGS as CELLINA_ABLATED_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_ABLATED_DO_COUNTERFACTUAL
 
@@ -541,11 +540,6 @@ def main():
         train_args = CELLINA_TRAIN_ARGS.copy()
         plan_kwargs = CELLINA_PLAN_KWARGS.copy()
         do_cf_default = CELLINA_DO_COUNTERFACTUAL
-        if 'mmd' in model_name:
-            model_args = CELLINA_MMD_MODEL_ARGS.copy()
-            train_args = CELLINA_MMD_TRAIN_ARGS.copy()
-            plan_kwargs = CELLINA_MMD_PLAN_KWARGS.copy()
-            do_cf_default = CELLINA_MMD_DO_COUNTERFACTUAL
         if 'ablated' in model_name:
             model_args = CELLINA_ABLATED_MODEL_ARGS.copy()
             train_args = CELLINA_ABLATED_TRAIN_ARGS.copy()
