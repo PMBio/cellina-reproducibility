@@ -30,6 +30,7 @@ conda env create -f environments/<env>.yml
 | `cpa_env.yml` | CPA |
 | `spatialprop_env.yml` | SpatialProp |
 | `mintflow_env.yml` | MintFlow |
+| `cellina.yml` | scGEN (via pertpy) |
 
 ## Sections
 1. Ablation study of each component of `cellina` — classifier, discriminator and edge loss
