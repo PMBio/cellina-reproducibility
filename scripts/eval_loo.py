@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from scipy.stats import pearsonr, spearmanr
 
@@ -234,6 +234,7 @@ def main():
         # Save results json
         os.makedirs(out_dir, exist_ok=True)
         model_name_save = model_name
+        model_name_save = model_name_save.replace('_', '-')
         model_name_save += "-cf" if use_cf else ""
         model_name_save += "-recon" if use_recon else ""
         out_fname = f"{sid}_{model_name_save}_{holdout_ct}_{hd}"

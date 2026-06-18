@@ -22,16 +22,17 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
 LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
+SEED = 2
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
-DATASET_NAME = "crc"  # or "merfish"
+DATASET_NAME = "merfish"  # or "merfish"
 
 CRC_PATHS = [
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
@@ -72,18 +73,13 @@ HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    #{"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
-    #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
-    #{"class": "cellina_graph", "name": "cellina-graph"},
-    #{"class": "concert", "name": "concert"},
-    #{"class": "scgen", "name": "scgen"},
+    {"class": "cellina", "name": "cellina-W", "extra_args": f"--inference_only --seed {SEED}"},
+    {"class": "cpa", "name": "cpa", "extra_args": f"--inference_only --seed {SEED}"},
+    {"class": "scgen", "name": "scgen", "extra_args": f"--inference_only --seed {SEED}"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
-    #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--inference_only"},
-    #{"class": "cellina", "name": "cellina-ablated"},
-    {"class": "cellina", "name": "cellina-W"},
-    {"class": "cellina", "name": "cellina-ablated-W"},
-    {"class": "cellina_graph", "name": "cellina-graph-W"},
+    #{"class": "cellina", "name": "cellina-ablated-W"},
+    #{"class": "cellina_graph", "name": "cellina-graph-W"},
 ]
 
 
@@ -237,7 +233,7 @@ def main():
                 cmd = make_cmd(p, DATASET_NAME, holdout, model_class, model_name, args.extra_args, model_extra)
                 # If the model class is 'cpa', run the command with the CPA env python directly
                 if model_class == 'cpa':
-                    cpa_python = os.environ.get("CPA_PYTHON", sys.executable)
+                    cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python" #os.environ.get("CPA_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
@@ -245,7 +241,7 @@ def main():
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':
-                    scgen_python = os.environ.get("SCGEN_PYTHON", sys.executable)
+                    scgen_python = "/data/a330d/miniforge3/envs/scgen/bin/python" #os.environ.get("SCGEN_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = scgen_python
 
