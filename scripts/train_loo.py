@@ -24,7 +24,7 @@ import scanpy as sc
 import anndata as ad
 import sys
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data2/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -290,7 +290,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
             raise RuntimeError(f"CPA training failed or not supported generically: {e}")
 
     elif mc == 'cellina_graph':
-        from cellina_graph import CellinaModel
+        from cellina import CellinaGCN as CellinaModel
         CellinaModel.setup_anndata(adata, 
                                    batch_key=batch_key, 
                                    labels_key=labels_key, 
@@ -503,7 +503,7 @@ def _load_model(save_dir, model_class, adata, splits=None):
         sc.pp.log1p(adata)
         model = pt.tl.Scgen.load(save_dir, adata)
     if model_class.lower() == 'cellina_graph':
-        from cellina_graph import CellinaModel
+        from cellina import CellinaGCN as CellinaModel
         model = CellinaModel.load(save_dir, adata)
     
     print(f"{model_class} loaded model from {save_dir}")
