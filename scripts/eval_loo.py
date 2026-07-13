@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from scipy.stats import pearsonr, spearmanr
 
@@ -36,7 +36,7 @@ from configs.cellina_graph_config import N_NEIGHBORS_GRAPH
 from train_loo import preprocess_crc, preprocess_merfish, split_indices, preprocess_spatial_features
 from train_loo import COUNTS_PER_K, DEFAULT_LABELS_KEY, DEFAULT_DOMAINS_KEY, DEFAULT_BATCH_KEY, DEFAULT_HVGS, DEFAULT_CTRL_DOMAINS, DEFAULT_HOLDOUT_DOMAINS, DEFAULT_N_NEIGHBORS
 from utils import set_seed
-from counterfactual_analysis import get_baseline_delta, compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
+from counterfactual_analysis import get_baseline_delta, compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc, nb_deviance_pop_mean
 
 
 def parse_args():
@@ -228,6 +228,7 @@ def main():
         edist_pca = compute_edistance(adata_full, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
         rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
         mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
+        nb_deviance = nb_deviance_pop_mean(obs_X=target, pred_X=counterfactual)
 
         print("Eval stats computed.")
 
@@ -255,6 +256,7 @@ def main():
                     'edistance_pca': edist_pca,
                     'rmse': rmse,
                     'mse_lfc': mse_lfc,
+                    'nb_deviance': nb_deviance,
                     }
             stats = {
                 k: float(v) if isinstance(v, np.floating) else v
