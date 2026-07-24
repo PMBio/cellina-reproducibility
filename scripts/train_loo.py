@@ -486,7 +486,7 @@ def run_inference(model,
 
 def _load_model(save_dir, model_class, adata, splits=None):
     if model_class.lower() == 'cellina':
-        from cellina import CellinaModel
+        from cellina import Cellina as CellinaModel
         model = CellinaModel.load(save_dir, adata)
     if model_class.lower() == 'cpa':
         import cpa
