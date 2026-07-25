@@ -22,7 +22,7 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
@@ -31,7 +31,7 @@ PY = sys.executable
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
-DATASET_NAME = "crc"  # or "merfish"
+DATASET_NAME = "merfish"  # or "merfish"
 
 CRC_PATHS = [
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
@@ -76,14 +76,14 @@ MODELS = [
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
     #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
     #{"class": "cellina_graph", "name": "cellina-graph"},
-    #{"class": "concert", "name": "concert"},
+    {"class": "concert", "name": "concert"},
     #{"class": "scgen", "name": "scgen"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-ablated"},
-    {"class": "cellina", "name": "cellina-W"},
-    {"class": "cellina", "name": "cellina-ablated-W"},
-    {"class": "cellina_graph", "name": "cellina-graph-W"},
+    #{"class": "cellina", "name": "cellina-W"},
+    #{"class": "cellina", "name": "cellina-ablated-W"},
+    #{"class": "cellina_graph", "name": "cellina-graph-W"},
 ]
 
 
@@ -241,7 +241,7 @@ def main():
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
-                    concert_python = os.environ.get("CONCERT_PYTHON", sys.executable)
+                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python" #os.environ.get("CONCERT_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':
