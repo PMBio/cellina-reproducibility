@@ -9,7 +9,7 @@ MODEL_ARGS = {
     "classifier_lambda": 1.0,
     "discriminator_lambda": 1.0,
     "link_prediction_weight": 1.0,
-    "n_layers": 3,
+    "n_layers": 2,
     "convolution_type": 'gat',
     "gene_likelihood": 'nb',
 }
@@ -36,5 +36,5 @@ PLAN_KWARGS = {
 
 # Enable counterfactual behaviour by default for Cellina
 DO_COUNTERFACTUAL = True
-N_NEIGHBORS_PER_SEED = 50  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
-N_NEIGHBORS_GRAPH = 50 # number of neighbors to compute adjacency matrix
+N_NEIGHBORS_PER_SEED = 20  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
+N_NEIGHBORS_GRAPH = 20 # number of neighbors to compute adjacency matrix
