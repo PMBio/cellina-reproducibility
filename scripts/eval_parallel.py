@@ -73,6 +73,7 @@ MODELS = [
     #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
     {"class": "cpa", "name": f"cpa_{SEED}", "extra_args": "--use_cf"},
     {"class": "scgen", "name": f"scgen_{SEED}", "extra_args": "--use_cf"},
+    #{"class": "concert", "name": "concert", "extra_args": "--use_cf"},
 ]
 
 

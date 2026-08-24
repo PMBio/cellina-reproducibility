@@ -78,6 +78,8 @@ MODELS = [
     {"class": "cpa", "name": "cpa", "extra_args": f"--inference_only --seed {SEED}"},
     {"class": "scgen", "name": "scgen", "extra_args": f"--inference_only --seed {SEED}"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
+    #{"class": "concert", "name": "concert"},
+    #{"class": "cellina_graph", "name": "cellina-graph"},
     #{"class": "cellina", "name": "cellina-ablated-W"},
     #{"class": "cellina_graph", "name": "cellina-graph-W"},
 ]
@@ -237,7 +239,7 @@ def main():
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
-                    concert_python = os.environ.get("CONCERT_PYTHON", sys.executable)
+                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python" #os.environ.get("CONCERT_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':

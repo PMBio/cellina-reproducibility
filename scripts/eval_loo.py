@@ -44,7 +44,7 @@ def parse_args():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen", "concert"]) 
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")
@@ -60,13 +60,13 @@ def _to_dense(x):
     return np.asarray(x)
 
 
-def load_model_predicted(path):
+def load_model_predicted(path, model_class):
     """Load an AnnData stored at recon_path and align rows to parent_adata.obs_names.
     Returns a dense numpy array shaped (parent_adata.n_obs, parent_adata.n_vars) where rows
     not present in recon file are filled with np.nan.
     """
     adata = sc.read(path)
-    latents = adata.obsm["latents"]
+    latents = None if model_class == "concert" else adata.obsm["latents"]
 
     return adata.X, latents
 
@@ -99,7 +99,7 @@ def get_counterfactual_counts(adata, model_class, labels_key, domains_key, holdo
         cf_fname = f"{model_name}_counterfactual_x_{holdout_domain}.h5ad"
         cf_path = os.path.join(base_dir, cf_fname)
         if use_cf:
-            cf_matrix, cf_latents = load_model_predicted(cf_path)
+            cf_matrix, cf_latents = load_model_predicted(cf_path, model_class)
         else:
             is_holdout_domain = adata.obs[domains_key] == holdout_domain
             is_holdout_ct = adata.obs[labels_key].astype(str) == holdout_ct
@@ -175,7 +175,7 @@ def main():
     recon, latents = None, None
     adata_full = adata.copy()
     if model_class != 'baseline':
-        recon, latents = load_model_predicted(recon_path)
+        recon, latents = load_model_predicted(recon_path, model_class)
         adata.uns['recon_x'] = recon
         adata.uns['latents'] = latents
         print('Loaded reconstructions and latents into adata.uns["recon_x"] from', recon_path)
