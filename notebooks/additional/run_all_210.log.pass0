@@ -1,0 +1,50 @@
+[2026-08-24T16:44:40+02:00] waiting for smoke-test pid 1518891
+[2026-08-24T16:50:40+02:00] smoke test done
+[2026-08-24T16:50:40+02:00] === graph sensitivity ===
+== per-cell-type graph-sensitivity sweep (slide 210, within-domain) ==
+  CTS          : Fibroblast Endothelial Myeloid T_cell Epithelial
+  KS           : 10 100 200 1000 10000
+  SEEDS        : 0 1 2 3 4
+  GPUS         : 0 1  (x3 jobs each -> 6 concurrent)
+  DATA         : /data/ddimitrov/repos/cellina-reproducibility/data/crc_wt_cosmx/crc_210.h5ad
+  DOMAINS      : 210_REF -> 210_CRC
+  OUTROOT      : /data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/results_210
+  CKPTROOT     : /data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/runs_210
+  LOGDIR       : /data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/logs_210
+  PYTHON       : /data/ddimitrov/software/miniforge3/envs/cellina_edge/bin/python
+
+[launch] Fibroblast/k10_seed0 on GPU 0 (slot 0)
+[launch] Fibroblast/k10_seed1 on GPU 0 (slot 1)
+[launch] Fibroblast/k10_seed2 on GPU 0 (slot 2)
+[launch] Fibroblast/k10_seed3 on GPU 1 (slot 3)
+[launch] Fibroblast/k10_seed4 on GPU 1 (slot 4)
+[launch] Fibroblast/k100_seed0 on GPU 1 (slot 5)
+[launch] Fibroblast/k100_seed1 on GPU 1 (slot 4)
+[launch] Fibroblast/k100_seed2 on GPU 0 (slot 1)
+[launch] Fibroblast/k100_seed3 on GPU 0 (slot 0)
+[launch] Fibroblast/k100_seed4 on GPU 1 (slot 3)
+[launch] Fibroblast/k200_seed0 on GPU 0 (slot 2)
+[launch] Fibroblast/k200_seed1 on GPU 1 (slot 5)
+[launch] Fibroblast/k200_seed2 on GPU 1 (slot 4)
+[launch] Fibroblast/k200_seed3 on GPU 0 (slot 1)
+[launch] Fibroblast/k200_seed4 on GPU 1 (slot 3)
+[launch] Fibroblast/k1000_seed0 on GPU 0 (slot 0)
+[launch] Fibroblast/k1000_seed1 on GPU 0 (slot 2)
+[launch] Fibroblast/k1000_seed2 on GPU 1 (slot 5)
+[launch] Fibroblast/k1000_seed3 on GPU 0 (slot 1)
+[launch] Fibroblast/k1000_seed4 on GPU 1 (slot 4)
+[launch] Fibroblast/k10000_seed0 on GPU 1 (slot 3)
+[launch] Fibroblast/k10000_seed1 on GPU 0 (slot 0)
+[launch] Fibroblast/k10000_seed2 on GPU 0 (slot 2)
+[launch] Fibroblast/k10000_seed3 on GPU 1 (slot 5)
+/data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/launch_per_ct.sh: line 66: 1603973 Killed                  CUDA_VISIBLE_DEVICES="$gpu" "$PYTHON" "$SCRIPT_DIR/run_sensitivity.py" --k "$k" --seed "$seed" --holdout-ct "$ct" --data "$DATA" --control-domain "$CONTROL_DOMAIN" --target-domain "$TARGET_DOMAIN" --outdir "$outdir" --ckpt-root "$ckpt_root" > "$LOGDIR/${ct}_${tag}.log" 2>&1
+[launch] Fibroblast/k10000_seed4 on GPU 1 (slot 3)
+[skip] Endothelial/k10_seed0 (result exists)
+/data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/launch_per_ct.sh: line 66: 1613418 Killed                  CUDA_VISIBLE_DEVICES="$gpu" "$PYTHON" "$SCRIPT_DIR/run_sensitivity.py" --k "$k" --seed "$seed" --holdout-ct "$ct" --data "$DATA" --control-domain "$CONTROL_DOMAIN" --target-domain "$TARGET_DOMAIN" --outdir "$outdir" --ckpt-root "$ckpt_root" > "$LOGDIR/${ct}_${tag}.log" 2>&1
+[launch] Endothelial/k10_seed1 on GPU 0 (slot 0)
+/data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/launch_per_ct.sh: line 66: 1615823 Killed                  CUDA_VISIBLE_DEVICES="$gpu" "$PYTHON" "$SCRIPT_DIR/run_sensitivity.py" --k "$k" --seed "$seed" --holdout-ct "$ct" --data "$DATA" --control-domain "$CONTROL_DOMAIN" --target-domain "$TARGET_DOMAIN" --outdir "$outdir" --ckpt-root "$ckpt_root" > "$LOGDIR/${ct}_${tag}.log" 2>&1
+[launch] Endothelial/k10_seed2 on GPU 0 (slot 2)
+[launch] Endothelial/k10_seed3 on GPU 0 (slot 1)
+[launch] Endothelial/k10_seed4 on GPU 1 (slot 4)
+/data/ddimitrov/repos/cellina-reproducibility/notebooks/additional/graph_sensitivity/launch_per_ct.sh: line 66: 1617469 Killed                  CUDA_VISIBLE_DEVICES="$gpu" "$PYTHON" "$SCRIPT_DIR/run_sensitivity.py" --k "$k" --seed "$seed" --holdout-ct "$ct" --data "$DATA" --control-domain "$CONTROL_DOMAIN" --target-domain "$TARGET_DOMAIN" --outdir "$outdir" --ckpt-root "$ckpt_root" > "$LOGDIR/${ct}_${tag}.log" 2>&1
+[launch] Endothelial/k100_seed0 on GPU 1 (slot 5)

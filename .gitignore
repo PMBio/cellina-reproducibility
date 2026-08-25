@@ -223,3 +223,8 @@ spatialprop/output/
 *.tex
 output/
 notebooks/neighb_perts/results/
+# rebuttal sweeps (slide 210): checkpoints + logs are heavy/regenerable
+notebooks/additional/graph_sensitivity/runs_210/
+notebooks/additional/graph_sensitivity/logs_210/
+notebooks/additional/node_fraction/logs_210/
+notebooks/additional/run_all_210.log
