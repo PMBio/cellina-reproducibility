@@ -6,16 +6,16 @@ import scanpy as sc
 import torch
 import anndata as ad
 
-DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data2/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from typing import Dict, Optional
 from scipy.sparse import issparse
 from scipy.stats import pearsonr, spearmanr
 
-sys.path.append('../scripts')
+sys.path.append('../../../scripts')
 from train_loo import preprocess_crc, preprocess_merfish
 from counterfactual_analysis import get_perturbation_logfc, get_global_perturbation_logfc
-from counterfactual_analysis import compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc
+from counterfactual_analysis import compute_rmse, compute_edistance, mixing_index, get_lfc, precision, direction_match, compute_mse_lfc, nb_deviance_pop_mean
 
 from perturb_utils import compute_pseudobulk_logfc, total_normalize
 from spatialprop_train_loo import clean_all_dirs
@@ -33,10 +33,11 @@ from spatial_gnn.utils.dataset_utils import (
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
+DATASET_NAME = "crc"  # Options: ['crc', 'merfish']
 
 CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
-CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+#CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
+CRC_SLIDES = ['crc_120']
 CRC_CELLTYPES = [
     "Endothelial",
     "Epithelial",
@@ -75,7 +76,7 @@ control_domain = DATA_ARGS.get('control_domains')[0]  # Assuming only one contro
 holdout_domains = DATA_ARGS.get('holdout_domains')
 out_dir = os.path.join(DATA_ROOT, "tmp/")
 model_base_path = '.'
-results_csv_name = f'../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
+results_csv_name = f'../../../results/loo_spatialprop_{DATASET_NAME}_DEG_{top_n}'
 results_csv_path = results_csv_name + '.csv' if not node_pert else results_csv_name + '_pert.csv'
 
 
@@ -158,6 +159,27 @@ def create_perturbation_input_matrix(
     return save_path
 
 
+def to_raw_counts(x_log1p):
+    """Undo scanpy's log1p on adata.X (log1p-normalized, not renormalized to n_genes)."""
+    x = x_log1p.toarray() if issparse(x_log1p) else np.asarray(x_log1p)
+    return np.clip(np.expm1(x), 0, None)
+
+
+def predicted_to_raw_counts(x_pred, row_scale, n_genes):
+    """Undo SpatialAgingCellDataset's log-space renormalize-to-n_genes, then expm1.
+
+    SpatialProp trains on log1p-normalized input that SpatialAgingCellDataset.process
+    further renormalizes (in log space, via sc.pp.normalize_total(..., target_sum=n_genes))
+    so each row sums to n_genes. Model outputs (e.g. layers["predicted_perturbed"]) live in
+    that same space, not raw counts, so this must run before any linear (raw-count) rescaling
+    such as total_normalize. `row_scale` substitutes the target cell's own real log1p
+    row-sum for the (unrecoverable) row-sum of the counterfactual prediction — same
+    convention as spprop_analysis.ipynb's to_expr.
+    """
+    x_hat = np.asarray(x_pred) * (row_scale[:, None] / n_genes)
+    return np.clip(np.expm1(x_hat), 0, None)
+
+
 def predict_for_holdout(
     adata_path, model_path, exp_name, center_celltypes, use_ids=None,
     device="cuda" if torch.cuda.is_available() else "cpu",
@@ -226,9 +248,9 @@ def main():
         print(f"\n{'='*60}\nProcessing slide {slide_id}\n{'='*60}")
         adata = sc.read_h5ad(f"{ADATA_BASE_PATH}/{slide_id}.h5ad")
         if DATASET_NAME == 'crc':
-            adata = preprocess_crc(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+            adata = preprocess_crc(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
         elif DATASET_NAME == 'merfish':
-            adata = preprocess_merfish(adata, n_top_genes=n_top_genes, n_neighbors=n_neighbors, labels_key=labels_key, domains_key=domains_key)
+            adata = preprocess_merfish(adata, n_top_genes=n_top_genes, labels_key=labels_key, domains_key=domains_key)
         else:
             raise ValueError(f"Unknown dataset_name: {DATASET_NAME}. Supported: crc, merfish")
         sc.pp.normalize_total(adata, target_sum=library_size)
@@ -287,7 +309,7 @@ def main():
                     trained_model_path,
                     exp_name,
                     center_celltypes=[holdout_ct],
-                    use_ids=[str(slide_id)],
+                    use_ids=[str(slide_id.split('_')[1])],
                     device=device,
                     batch_size=batch_size,
                 )
@@ -309,13 +331,22 @@ def main():
                 if n_ref < min_cells or n_crc < min_cells:
                     print(f"  skip {holdout_ct}: too few cells (need ≥ {min_cells})")
                 else:
-                    ref_expr = total_normalize(adata_result[mask_ref].X, target_sum=library_size)
+                    n_genes = adata_result.n_vars
+                    crc_log_norm = adata_result[mask_crc].X
+                    crc_log_norm = crc_log_norm.toarray() if issparse(crc_log_norm) else np.asarray(crc_log_norm)
+                    row_scale_crc = crc_log_norm.sum(axis=1)
+
+                    ref_expr = total_normalize(to_raw_counts(adata_result[mask_ref].X), target_sum=library_size)
                     pert_expr = total_normalize(
                         # NOTE: we don't use predicted_tempered to avoid leaking info from the heldout CRC distribution into the perturbation prediction
-                        adata_result[mask_crc].layers["predicted_perturbed"],
+                        predicted_to_raw_counts(
+                            adata_result[mask_crc].layers["predicted_perturbed"],
+                            row_scale_crc,
+                            n_genes,
+                        ),
                         target_sum=library_size,
                     )
-                    obs_expr = total_normalize(adata_result[mask_crc].X, target_sum=library_size)
+                    obs_expr = total_normalize(to_raw_counts(crc_log_norm), target_sum=library_size)
 
                     control = ref_expr
                     target = obs_expr
@@ -336,6 +367,7 @@ def main():
                     edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=library_size, local=True, use_pca=True, log1p=False)
                     rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=library_size)
                     mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
+                    nb_deviance = nb_deviance_pop_mean(obs_X=target, pred_X=counterfactual)
 
                     results.append(
                         dict(
@@ -360,14 +392,19 @@ def main():
                             rmse=rmse,
                             mse_lfc=mse_lfc,
                             top_n_perturb=top_n_perturb,
+                            nb_deviance=nb_deviance,
                         )
                     )
             
             # Remove spatialprop-generated data files
-            #clean_all_dirs()
+            clean_all_dirs()
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv(f"{results_csv_path}", index=False)
+    # Check if CSV already exists, if so, append to it ; otherwise, create a new CSV
+    if os.path.exists(results_csv_path):
+        df_results.to_csv(f"{results_csv_path}", mode='a', header=False, index=False)
+    else:
+        df_results.to_csv(f"{results_csv_path}", index=False)
 
 
 if __name__ == "__main__":

@@ -43,17 +43,19 @@ PY = sys.executable
 # Define these here (populate manually before running).
 DATASET_NAME = "crc"  # or "merfish"
 
-ADATA_PATH = os.path.join(DATA_ROOT, "datasets/crc/processed/crc_patient_loo.h5ad")
+#ADATA_PATH = os.path.join(DATA_ROOT, "datasets/crc/processed/crc_patient_loo.h5ad")
+ADATA_PATH = os.path.join(DATA_ROOT, "datasets/crc/processed/crc_cosmx_wt.h5ad")
 
 # batch_key values (patients/slides) to hold out entirely, one job per entry
-HOLDOUT_SIDS = [231, 232, 242]
+#HOLDOUT_SIDS = [231, 232, 242]
+HOLDOUT_SIDS = [221, 210, 120]
 
 CRC_HOLDOUT_CELLTYPES = [
     "Endothelial",
     "Epithelial",
     "Fibroblast",
-    #"Myeloid",
-    #"T_cell",
+    "Myeloid",
+    "T_cell",
 ]
 
 MERFISH_HOLDOUT_CELLTYPES = [
@@ -74,9 +76,9 @@ EXCLUDE_SIDS = "" if DATASET_NAME == "crc" else ""
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    #{"class": "cellina", "name": "cellina"},
+    {"class": "cellina", "name": "cellina"},
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
-    #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
+    {"class": "cpa", "name": "cpa"},
     # baseline has no train/load step (average domain shift computed at eval time), so
     # it doesn't need --inference_only and runs with the default python interpreter.
     {"class": "baseline", "name": "baseline"},

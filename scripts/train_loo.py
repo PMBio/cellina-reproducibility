@@ -568,15 +568,6 @@ def run_inference(model,
             mask_target = is_holdout_region & is_holdout_ct
             idx_target = np.where(mask_target.values)[0]
 
-            if 'cellina' in model_class.lower():
-                # "neighbour_indices" are indices of the neighbors of idx_target cells
-                conn = adata.obsp["spatial_connectivities_orig"]
-                sub_conn = conn[idx_target]                # rows for target cells
-                neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
-                neighbor_indices = np.unique(neighbor_indices)
-                # remove neighbors having same ct as holdout_ct
-                neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
-
             if model_class.lower() == 'concert':
                 # Take control cells (source) and predict what they'd look like under the
                 # target domain's tissue attribute, keeping their own batch/perturbation fixed.
@@ -615,6 +606,14 @@ def run_inference(model,
                 cf_latents = _get_latents(model, adata_ctrl, model_class, batch_size)
             
             if 'cellina' in model_class.lower():
+                # "neighbour_indices" are indices of the neighbors of idx_target cells
+                conn = adata.obsp["spatial_connectivities_orig"]
+                sub_conn = conn[idx_target]                # rows for target cells
+                neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
+                neighbor_indices = np.unique(neighbor_indices)
+                # remove neighbors having same ct as holdout_ct
+                neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
+
                 args_gex = {
                     "indices": idx_control,
                     "batch_size": batch_size,
@@ -787,7 +786,7 @@ def main():
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
     # preprocess spatial features after splitting to avoid data leakage in spatial features for test set
-    step_size_px = 0.12028 if dataset_name == 'crc' else 0.109
+    step_size_px = 0.12028 if dataset_name == 'crc' else 1
     adata = preprocess_spatial_features(adata, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=test_idx)
 
     # decide whether to run counterfactuals from config default

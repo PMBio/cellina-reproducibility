@@ -425,3 +425,46 @@ def get_global_perturbation_logfc(adata, control_domain, holdout_domain, labels_
     _control_mean = np.asarray(_control_X.mean(axis=0)).flatten() if sp.issparse(_control_X) else _control_X.mean(axis=0).flatten()
     
     return pd.Series(_holdout_mean - _control_mean, index=pdata_global.var_names)
+
+
+def _estimate_nb_theta(x: np.ndarray, eps: float = 1e-8) -> np.ndarray:
+    mean = np.asarray(x, dtype=np.float64).mean(axis=0)
+    var = np.asarray(x, dtype=np.float64).var(axis=0)
+    excess = np.maximum(var - mean, 0.0)
+    theta = np.divide(mean * mean, excess + eps)
+    return np.clip(theta, a_min=eps, a_max=1e8)
+
+
+def nb_deviance_pop_mean(
+    obs_X: np.ndarray,
+    pred_X: np.ndarray,
+    theta: np.ndarray | None = None,
+    eps: float = 1e-8,
+) -> float:
+    """
+    Mean per-gene negative-binomial-style deviance between observed and predicted population means.
+
+    Unlike ``nb_deviance``, this metric is intended for unpaired population comparisons and
+    therefore allows different numbers of observed and predicted cells. Dispersion is estimated per gene
+    from ``obs_X`` when ``theta`` is omitted.
+    """
+    obs = np.asarray(obs_X, dtype=np.float64)
+    pred = np.asarray(pred_X, dtype=np.float64)
+    if obs.ndim != 2 or pred.ndim != 2:
+        raise ValueError(f"Expected 2D matrices, got obs_X with shape {obs.shape} and pred_X with shape {pred.shape}")
+    if obs.shape[1] != pred.shape[1]:
+        raise ValueError(f"obs_X and pred_X must have the same number of genes, got {obs.shape[1]} and {pred.shape[1]}")
+    if np.any(obs < 0) or np.any(pred < 0):
+        raise ValueError("nb_deviance_pop_mean expects non-negative matrices")
+
+    obs_mean = np.clip(obs.mean(axis=0), a_min=eps, a_max=None)
+    pred_mean = np.clip(pred.mean(axis=0), a_min=eps, a_max=None)
+    theta_vec = _estimate_nb_theta(obs, eps=eps) if theta is None else np.asarray(theta, dtype=np.float64)
+    if theta_vec.ndim != 1 or theta_vec.shape[0] != obs.shape[1]:
+        raise ValueError(f"theta must have shape ({obs.shape[1]},), got {theta_vec.shape}")
+    theta_vec = np.clip(theta_vec, a_min=eps, a_max=1e8)
+
+    term1 = np.where(obs_mean > 0, obs_mean * np.log(obs_mean / pred_mean), 0.0)
+    term2 = (obs_mean + theta_vec) * np.log((obs_mean + theta_vec) / (pred_mean + theta_vec))
+    deviance_per_gene = 2.0 * (term1 - term2)
+    return float(np.mean(np.maximum(deviance_per_gene, 0.0)))
