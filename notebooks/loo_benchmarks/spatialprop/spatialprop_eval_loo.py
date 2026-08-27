@@ -6,7 +6,7 @@ import scanpy as sc
 import torch
 import anndata as ad
 
-DATA_ROOT = '/data2/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 from typing import Dict, Optional
 from scipy.sparse import issparse
@@ -33,11 +33,10 @@ from spatial_gnn.utils.dataset_utils import (
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 
-DATASET_NAME = "crc"  # Options: ['crc', 'merfish']
+DATASET_NAME = "merfish"  # Options: ['crc', 'merfish']
 
 CRC_BASE_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo")
-#CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
-CRC_SLIDES = ['crc_120']
+CRC_SLIDES = ['crc_232', 'crc_242', 'crc_231', 'crc_210', 'crc_221', 'crc_120']
 CRC_CELLTYPES = [
     "Endothelial",
     "Epithelial",
@@ -309,7 +308,7 @@ def main():
                     trained_model_path,
                     exp_name,
                     center_celltypes=[holdout_ct],
-                    use_ids=[str(slide_id.split('_')[1])],
+                    use_ids=[str(slide_id)],
                     device=device,
                     batch_size=batch_size,
                 )

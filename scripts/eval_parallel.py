@@ -20,7 +20,7 @@ import glob
 from pathlib import Path
 import time
 
-DATA_ROOT = '/data2/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EVAL_SCRIPT = SCRIPT_DIR / "eval_loo.py"
@@ -28,7 +28,7 @@ LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
 
 # Populate these lists manually
-DATASET_NAME = "crc"  # or "merfish"
+DATASET_NAME = "merfish"  # or "merfish"
 
 CRC_PATHS = [
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
@@ -48,7 +48,7 @@ CRC_HOLDOUTS = [
 ]
 
 MERFISH_PATHS = [
-    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
     os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
     os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad"),
 ]
