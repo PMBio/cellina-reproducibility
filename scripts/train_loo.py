@@ -330,7 +330,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
 
     if mc == 'cellina':
         import cellina
-        from cellina import CellinaModel
+        from cellina import Cellina as CellinaModel
         print("cellina version: ", cellina.__version__)
         CellinaModel.setup_anndata(adata, 
                                    batch_key=batch_key, 
