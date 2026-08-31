@@ -47,8 +47,8 @@ DATASET_NAME = "crc"  # or "merfish"
 ADATA_PATH = os.path.join(DATA_ROOT, "datasets/crc/processed/crc_cosmx_wt.h5ad")
 
 # batch_key values (patients/slides) to hold out entirely, one job per entry
-#HOLDOUT_SIDS = [231, 232, 242]
-HOLDOUT_SIDS = [221, 210, 120]
+HOLDOUT_SIDS = [231, 232, 242]
+#HOLDOUT_SIDS = [221, 210, 120]
 
 CRC_HOLDOUT_CELLTYPES = [
     "Endothelial",
