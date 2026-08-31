@@ -234,6 +234,7 @@ def main():
         # Save results json
         os.makedirs(out_dir, exist_ok=True)
         model_name_save = model_name
+        model_name_save = model_name_save.replace('_', '-')
         model_name_save += "-cf" if use_cf else ""
         model_name_save += "-recon" if use_recon else ""
         out_fname = f"{sid}_{model_name_save}_{holdout_ct}_{hd}"
