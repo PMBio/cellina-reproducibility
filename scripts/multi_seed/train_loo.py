@@ -25,7 +25,7 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = "/data/a330d" #os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -65,6 +65,7 @@ def parse_args():
     p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'scgen'], help="one of: cellina, cpa, cellina_graph, concert, scgen")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
     p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
 
     return p.parse_args()
 
@@ -330,7 +331,7 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
 
     if mc == 'cellina':
         import cellina
-        from cellina import CellinaModel
+        from cellina import Cellina as CellinaModel
         print("cellina version: ", cellina.__version__)
         CellinaModel.setup_anndata(adata, 
                                    batch_key=batch_key, 
@@ -493,7 +494,8 @@ def run_inference(model,
                   return_normalized=False,
                   extras={},
                   control_domains=DEFAULT_CTRL_DOMAINS,
-                  holdout_domains=DEFAULT_HOLDOUT_DOMAINS):
+                  holdout_domains=DEFAULT_HOLDOUT_DOMAINS,
+                  seed=DEFAULT_SEED,):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
 
     print("Running inference and saving outputs...")
@@ -600,6 +602,7 @@ def run_inference(model,
                 cf_counts = _to_array(perturbed_counts)
                 cf_latents = None
 
+
             if model_class.lower() == 'cpa':
                 from cpa._utils import CPA_REGISTRY_KEYS
                 # Subset adata - this is how CPA does counterfactuals
@@ -615,10 +618,18 @@ def run_inference(model,
                 cf_latents = _get_latents(model, adata_ctrl, model_class, batch_size)
             
             if 'cellina' in model_class.lower():
+                # "neighbour_indices" are indices of the neighbors of idx_target cells
+                conn = adata.obsp["spatial_connectivities_orig"]
+                sub_conn = conn[idx_target]                # rows for target cells
+                neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
+                neighbor_indices = np.unique(neighbor_indices)
+                # remove neighbors having same ct as holdout_ct
+                neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
+                
                 args_gex = {
                     "indices": idx_control,
                     "batch_size": batch_size,
-                    "seed": 0,
+                    "seed": seed,
                     "neighbour_indices": neighbor_indices
                 }
                 if model_class.lower() == 'cellina_graph':
@@ -706,6 +717,7 @@ def main():
     inference_only = args.inference_only
     normalize_counts = False    
     sid = os.path.basename(args.adata_path).split('.h5ad')[0]
+    seed = args.seed
     
     if mc == 'cellina':
         model_args = CELLINA_MODEL_ARGS.copy()
@@ -741,7 +753,7 @@ def main():
         raise ValueError(f"Unsupported model_class: {args.model_class}")
 
     # seed for reproducibility
-    set_seed(DEFAULT_SEED)
+    set_seed(seed)
 
     # load adata
     print("Loading adata:", args.adata_path)
@@ -782,7 +794,7 @@ def main():
                                                  labels_key=labels_key,
                                                  domains_key=domains_key,
                                                  holdout_domains=holdout_domains,
-                                                 seed=DEFAULT_SEED)
+                                                 seed=seed)
     splits = (train_idx, val_idx, test_idx)
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
@@ -794,6 +806,7 @@ def main():
     do_cf = bool(do_cf_default)
 
     # prepare save dir for model
+    model_name = f'{model_name}_{seed}'
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -836,6 +849,7 @@ def main():
                                     extras=extras,
                                     control_domains=control_domains,
                                     holdout_domains=holdout_domains,
+                                    seed=seed,
                                     )
 
     print("Done. Outputs:")
