@@ -26,6 +26,7 @@ match how the reused checkpoint was trained.
 import argparse
 import json
 import os
+import sys
 import time
 
 
@@ -66,6 +67,15 @@ def parse_args():
     p.add_argument("--thresholds", type=str, default="0.25 0.5 1.0",
                    help="Space-separated |logFC| thresholds for the gene-count metric.")
     p.add_argument("--batch-size", type=int, default=2048)
+    p.add_argument("--n-draws", type=int, default=8,
+                   help="Average the decoder over this many posterior draws. "
+                        "Cellina's get_normalized_expression samples z and s "
+                        "(scvi Encoder.forward: rsample), so a single call is one "
+                        "draw and two calls differ even on identical input -- that "
+                        "noise alone gives l2_norm ~0.15 at fraction=0.")
+    p.add_argument("--artifacts", action="store_true",
+                   help="Dump per-run profiles/samples to <outdir>/<run_tag>.npz "
+                        "so metric changes can be re-scored offline.")
     return p.parse_args()
 
 
@@ -142,6 +152,9 @@ def main():
     import torch
     from sklearn.model_selection import train_test_split
     from scipy.stats import pearsonr
+
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from loo_metrics import score_all, save_artifacts
 
     from cellina import Cellina, make_neighbor_perturbation
     from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
@@ -234,26 +247,33 @@ def main():
         obsm_key_out="spatial_x_cf", base=np.e, renormalize=True, add_shift=True,
         perturb_fraction=args.fraction, random_state=args.seed,
     )
-    pert_expr = model.get_perturbed_expression(
-        adata=adata, indices=idx_control, spatial_obsm_key="spatial_x_cf",
-        batch_size=args.batch_size, library_size=1e4)
+    def _predict(obsm_key):
+        """Posterior-predictive mean over n_draws draws (the encoder samples)."""
+        acc = None
+        for _ in range(args.n_draws):
+            x = model.get_perturbed_expression(
+                adata=adata, indices=idx_control, spatial_obsm_key=obsm_key,
+                batch_size=args.batch_size, library_size=1e4)
+            acc = x if acc is None else acc + x
+        return acc / args.n_draws
+
+    pert_expr = _predict("spatial_x_cf")
 
     # Model's UNPERTURBED prediction for the same cells (real neighbourhoods).
     # Magnitude/breadth are measured against THIS baseline so they capture the
     # perturbation-induced shift in the model's own output, not the constant
     # model-vs-observed reconstruction offset.
-    baseline_expr = model.get_perturbed_expression(
-        adata=adata, indices=idx_control, spatial_obsm_key="spatial_x",
-        batch_size=args.batch_size, library_size=1e4)
+    baseline_expr = _predict("spatial_x")
 
     # ---- metrics ---------------------------------------------------------
     control = np.array(adata.layers["counts"][mask_control.values, :].todense())
     target = np.array(adata.layers["counts"][mask_target.values, :].todense())
 
     # direction fidelity: predicted vs OBSERVED control logFC over top observed DEGs
-    true_lfc, pred_lfc, deg = get_lfc(control=control, target=target,
-                                      counterfactual=pert_expr, n_deg=args.n_deg)
-    pearson, _ = pearsonr(true_lfc[deg], pred_lfc[deg])
+    scores, true_lfc, pred_lfc, deg = score_all(
+        control=control, target=target, counterfactual=pert_expr,
+        adata_full=adata, n_deg=args.n_deg, seed=args.seed)
+    pearson = scores["pearson"]
 
     # perturbation-induced shift: predicted counterfactual vs predicted BASELINE
     mean_cf = np.nanmean(_normalize_counts(pert_expr), axis=0)
@@ -288,13 +308,20 @@ def main():
     }
     for t in thresholds:
         result[f"n_genes_gt_{t}"] = int((abs_shift > t).sum())
+    result.update(scores)           # eval_loo.py metric set (overwrites pearson identically)
+    result["n_draws"] = args.n_draws
+
+    if args.artifacts:
+        save_artifacts(os.path.join(args.outdir, f"{run_tag}.npz"),
+                       control, target, pert_expr, true_lfc, pred_lfc, deg,
+                       seed=args.seed)
 
     out_path = os.path.join(args.outdir, f"{run_tag}.json")
     with open(out_path, "w") as fh:
         json.dump(result, fh, indent=2)
-    print(f"[{run_tag}] r={pearson:.3f} l2={result['l2_norm']:.2f} "
-          f"n>0.5={result.get('n_genes_gt_0.5')}  -> {out_path} "
-          f"({result['runtime_sec']}s)")
+    print(f"[{run_tag}] r={pearson:.3f} prec={result['precision']:.3f} "
+          f"dmk={result['direction_match_k']:.3f} l2={result['l2_norm']:.2f}"
+          f"  -> {out_path} ({result['runtime_sec']}s)")
 
 
 if __name__ == "__main__":

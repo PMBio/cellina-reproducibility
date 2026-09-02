@@ -228,3 +228,6 @@ notebooks/additional/graph_sensitivity/runs_210/
 notebooks/additional/graph_sensitivity/logs_210/
 notebooks/additional/node_fraction/logs_210/
 notebooks/additional/run_all_210.log
+
+# rebuttal sweep outputs — large (npz artifacts up to GBs); keep on disk, never commit
+notebooks/additional/**/results*/

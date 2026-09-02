@@ -13,7 +13,8 @@ the dose-response sweep across cell types:
     dose-response that holds regardless of absolute fidelity.
   * ``<prefix>_long.csv`` / ``<prefix>_wide.csv`` -- tidy provenance.
 
-No per-cell-type tables or plots are produced (combined tables only).
+  * ``<prefix>.{svg,png}``   overlay: Pearson r vs perturbed fraction,
+    one line per cell type (mirrors the graph-sensitivity figure).
 """
 import argparse
 import glob
@@ -69,6 +70,7 @@ def main():
     long_path = f"{out_prefix}_long.csv"
     df.to_csv(long_path, index=False)
     fracs = sorted(df["fraction"].unique())
+    n_seed = int(df["seed"].nunique())
     print(f"Wrote {long_path}  ({len(df)} runs, {len(ct_cols)} cell types, "
           f"{len(fracs)} fractions, {df['seed'].nunique()} seeds)")
 
@@ -138,7 +140,7 @@ def main():
         "pearson", 3, f"{out_prefix}_pearson.tex",
         cap_common +
         r"Pearson correlation between observed and predicted logFC over the top-50 "
-        r"DE genes on held-out tumour cells of each type (mean $\pm$ SD over 3 seeds). "
+        rf"DE genes on held-out tumour cells of each type (mean $\pm$ SD over {n_seed} seeds). "
         r"Direction fidelity rises monotonically with the perturbed fraction -- from "
         r"weak or noisy at $5\%$, where only a handful of neighbours are shifted, "
         r"toward each cell type's ceiling at $100\%$ -- and the ceiling ordering "
@@ -150,10 +152,51 @@ def main():
         "l2_norm", 2, f"{out_prefix}_l2.tex",
         cap_common +
         r"$L_2$ norm of the model's induced logFC shift over all genes, relative to "
-        r"the unperturbed prediction for the same cells (mean $\pm$ SD over 3 seeds). "
+        rf"the unperturbed prediction for the same cells (mean $\pm$ SD over {n_seed} seeds). "
         r"The magnitude grows monotonically with the perturbed fraction for every "
         r"cell type, showing that Cellina models node perturbations continuously.",
     )
+
+    # ---- overlay plot (mirrors graph_sensitivity/plot_per_ct.py) ----------
+    # Categorical x for the same reason as the k sweep: keeps fraction 0 (the
+    # unperturbed anchor) on the axis and the two panels visually siblings.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7, 5.2))
+    cmap = plt.get_cmap("tab10")
+    x = list(range(len(fracs)))
+    for i, ct in enumerate(ct_cols):
+        mean, std = [], []
+        for fr in fracs:
+            try:
+                mm = agg.loc[(ct, fr), ("pearson", "mean")]
+                ss = agg.loc[(ct, fr), ("pearson", "std")]
+            except KeyError:
+                mm, ss = np.nan, np.nan
+            mean.append(mm)
+            std.append(0.0 if np.isnan(ss) else ss)
+        mean = np.asarray(mean, dtype=float)
+        std = np.asarray(std, dtype=float)
+        color = cmap(i)
+        ax.fill_between(x, mean - std, mean + std, alpha=0.15, color=color,
+                        linewidth=0)
+        ax.plot(x, mean, "-o", color=color, label=ct, zorder=3)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{fr:g}" for fr in fracs])
+    ax.set_xlabel("Perturbed fraction of neighbour cells "
+                  "(ticks evenly spaced, not to scale)")
+    ax.set_ylabel("Pearson r  (observed vs. predicted logFC, top-50 DE genes)")
+    ax.set_title("Cellina node-perturbation dose response, per cell type\n"
+                 "(within-domain kNN, k=200 checkpoint, held-out tumour cells)")
+    ax.legend(frameon=False, fontsize=9, title="held-out cell type")
+    ax.grid(True, which="both", axis="y", alpha=0.25)
+    fig.tight_layout()
+    for ext in ("svg", "png"):
+        fig.savefig(f"{out_prefix}.{ext}", dpi=200, bbox_inches="tight")
+        print(f"Wrote {out_prefix}.{ext}")
 
     # ---- console summary --------------------------------------------------
     for metric, dec in (("pearson", 3), ("l2_norm", 2)):

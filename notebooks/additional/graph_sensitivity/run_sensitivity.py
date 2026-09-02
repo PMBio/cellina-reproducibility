@@ -27,6 +27,7 @@ Mirrors docs/tutorial.ipynb step-for-step; the only deliberate deviations are:
 import argparse
 import json
 import os
+import sys
 import time
 
 
@@ -56,6 +57,16 @@ def parse_args():
                    help="Root dir for per-run training checkpoints.")
     p.add_argument("--max-epochs", type=int, default=100)
     p.add_argument("--batch-size", type=int, default=2048)
+    p.add_argument("--n-draws", type=int, default=8,
+                   help="Average the counterfactual decoder over this many "
+                        "posterior draws (the scvi encoder rsamples z and s, so a "
+                        "single call is one draw).")
+    p.add_argument("--artifacts", action="store_true",
+                   help="Dump per-run profiles/samples to <outdir>/<run_tag>.npz.")
+    p.add_argument("--reuse-ckpt", action="store_true",
+                   help="Skip training when <ckpt-root>/<run_tag>/ already holds a "
+                        "checkpoint; load it and score only. Turns a re-score of an "
+                        "existing sweep into inference-only work.")
     p.add_argument("--lean-cf", action="store_true",
                    help="Memory-lean edge-perturbation counterfactual. Numerically "
                         "identical to the library path (verified in test_lean_cf.py) "
@@ -161,6 +172,9 @@ def main():
     from sklearn.model_selection import train_test_split
     from scipy.stats import pearsonr
     from scvi.train._callbacks import SaveCheckpoint, EarlyStopping
+
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from loo_metrics import score_all, save_artifacts
 
     from cellina import Cellina
     from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
@@ -285,10 +299,14 @@ def main():
         ],
     }
     plan_kwargs = {"lr": 1e-3, "normalize_losses": True}
-    model.train(**train_args, plan_kwargs=plan_kwargs)
+    existing = sorted(os.listdir(ckpt_dir))
+    if args.reuse_ckpt and existing:
+        print(f"[{run_tag}] reusing checkpoint {existing[0]} (skipping training)")
+    else:
+        model.train(**train_args, plan_kwargs=plan_kwargs)
 
     # reload best checkpoint (load_best_on_end already restores weights, but be explicit)
-    ckpt_name = os.listdir(ckpt_dir)[0]
+    ckpt_name = sorted(os.listdir(ckpt_dir))[0]
     model = Cellina.load(os.path.join(ckpt_dir, ckpt_name), adata=adata)
 
     # ---- 4.1 edge-perturbation counterfactual ---------------------------
@@ -312,12 +330,12 @@ def main():
         f"donor pool leaked {n_donor - donor_in_crc}/{n_donor} non-CRC cells "
         f"despite within-domain graph (library_key={domains_key!r})")
 
-    if args.lean_cf:
-        counterfactual_counts = lean_counterfactual_expression(
-            model, adata, idx_control, neighbor_indices,
-            n_neighbours=args.k, seed=args.seed, batch_size=args.batch_size)
-    else:
-        counterfactual_counts = model.get_counterfactual_expression(
+    def _counterfactual():
+        if args.lean_cf:
+            return lean_counterfactual_expression(
+                model, adata, idx_control, neighbor_indices,
+                n_neighbours=args.k, seed=args.seed, batch_size=args.batch_size)
+        return model.get_counterfactual_expression(
             indices=idx_control,
             batch_size=args.batch_size,
             seed=args.seed,
@@ -326,13 +344,21 @@ def main():
             n_neighbours=args.k,          # rewire size tracks the swept k
         )
 
+    # Posterior-predictive mean: the donor rewiring is fixed by --seed, so averaging
+    # here removes encoder sampling noise only, not the graph perturbation.
+    acc = None
+    for _ in range(args.n_draws):
+        x = _counterfactual()
+        acc = x if acc is None else acc + x
+    counterfactual_counts = acc / args.n_draws
+
     control = np.array(adata.layers["counts"][mask_control.values, :].todense())
     target = np.array(adata.layers["counts"][mask_target.values, :].todense())
 
-    true_lfc, pred_lfc, deg = get_lfc(
+    scores, true_lfc, pred_lfc, deg = score_all(
         control=control, target=target, counterfactual=counterfactual_counts,
-        n_deg=args.n_deg)
-    pearson, _ = pearsonr(true_lfc[deg], pred_lfc[deg])
+        adata_full=adata, n_deg=args.n_deg, seed=args.seed)
+    pearson = scores["pearson"]
 
     result = {
         "k": args.k,
@@ -356,10 +382,19 @@ def main():
         "runtime_sec": round(time.time() - t0, 1),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
     }
+    result.update(scores)           # eval_loo.py metric set
+    result["n_draws"] = args.n_draws
+
+    if args.artifacts:
+        save_artifacts(os.path.join(args.outdir, f"{run_tag}.npz"),
+                       control, target, counterfactual_counts,
+                       true_lfc, pred_lfc, deg, seed=args.seed)
+
     out_path = os.path.join(args.outdir, f"{run_tag}.json")
     with open(out_path, "w") as fh:
         json.dump(result, fh, indent=2)
-    print(f"[{run_tag}] pearson={pearson:.4f}  ->  {out_path}  "
+    print(f"[{run_tag}] r={pearson:.3f} prec={result['precision']:.3f} "
+          f"dmk={result['direction_match_k']:.3f}  ->  {out_path}  "
           f"({result['runtime_sec']}s)")
 
 

@@ -6,7 +6,7 @@ directory, robust to reused JSONs that predate the holdout_ct field). Emits:
   * <out>_long.csv    tidy per-run rows
   * <out>_wide.csv    mean +/- SD Pearson r, rows=k, cols=cell type
   * <out>.tex         LaTeX table (rows=k, one column per cell type)
-  * <out>.{png,pdf}   overlay: Pearson r vs k, one line per cell type
+  * <out>.{svg,png}   overlay: Pearson r vs k, one line per cell type
 """
 import argparse
 import glob
@@ -36,7 +36,6 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.ticker
 
     out_prefix = args.out_prefix or os.path.join(args.results_root,
                                                  "graph_sensitivity_per_ct")
@@ -119,26 +118,31 @@ def main():
     print(f"Wrote {out_prefix}.tex")
 
     # ---- overlay plot ----------------------------------------------------
+    # Categorical x: plot the k grid at even indices and label ticks with the
+    # actual k values, matching the node-fraction figure (whose fraction-0
+    # anchor a log axis would drop).
+    kpos = {k: i for i, k in enumerate(ks)}
     fig, ax = plt.subplots(figsize=(7, 5.2))
     cmap = plt.get_cmap("tab10")
     for i, ct in enumerate(cts):
         a = agg[agg.cell_type == ct].sort_values("k")
+        x = [kpos[k] for k in a["k"]]
         color = cmap(i)
-        ax.fill_between(a["k"], a["mean"] - a["std"], a["mean"] + a["std"],
+        ax.fill_between(x, a["mean"] - a["std"], a["mean"] + a["std"],
                         alpha=0.15, color=color, linewidth=0)
-        ax.plot(a["k"], a["mean"], "-o", color=color, label=ct, zorder=3)
+        ax.plot(x, a["mean"], "-o", color=color, label=ct, zorder=3)
 
-    ax.set_xscale("log")
-    ax.set_xticks(ks)
-    ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
-    ax.set_xlabel("Neighborhood size  k  (max_neighbours, bandwidth = ∞)")
+    ax.set_xticks(range(len(ks)))
+    ax.set_xticklabels([str(k) for k in ks])
+    ax.set_xlabel("Neighborhood size  k  (max_neighbours, bandwidth = ∞; "
+                  "ticks evenly spaced, not to scale)")
     ax.set_ylabel("Pearson r  (observed vs. predicted logFC, top-50 DE genes)")
     ax.set_title("Cellina sensitivity to neighbor-graph construction, per cell type\n"
                  "(within-domain kNN, edge perturbation on held-out tumour cells)")
     ax.legend(frameon=False, fontsize=9, title="held-out cell type")
     ax.grid(True, which="both", axis="y", alpha=0.25)
     fig.tight_layout()
-    for ext in ("png", "pdf"):
+    for ext in ("svg", "png"):
         fig.savefig(f"{out_prefix}.{ext}", dpi=200, bbox_inches="tight")
         print(f"Wrote {out_prefix}.{ext}")
 
