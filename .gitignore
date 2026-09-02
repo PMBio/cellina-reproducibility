@@ -223,3 +223,4 @@ spatialprop/output/
 *.tex
 output/
 notebooks/neighb_perts/results/
+*.npz
