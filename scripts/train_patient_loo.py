@@ -40,6 +40,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import anndata as ad
+import h5py
 
 DATA_ROOT = '/data2/a330d'  # os.environ.get("DATA_ROOT", ".")
 
@@ -60,6 +62,7 @@ from utils import set_seed
 from counterfactual_analysis import (
     compute_rmse, compute_edistance, mixing_index, get_lfc, precision,
     direction_match, compute_mse_lfc, _to_dense, get_baseline_delta,
+    nb_deviance_pop_mean
 )
 from train_loo import (
     preprocess_spatial_features,
@@ -94,6 +97,38 @@ def parse_args():
     p.add_argument("--n_deg", type=int, default=DEFAULT_N_DEG)
     p.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
     return p.parse_args()
+
+
+def _read_elem(group_or_dataset):
+    try:
+        from anndata.io import read_elem
+    except ImportError:
+        from anndata.experimental import read_elem
+    return read_elem(group_or_dataset)
+
+
+def load_adata_lean(adata_path, need_spatial):
+    """Load only what this script actually uses from adata_path, instead of sc.read()'s
+    full load. crc_cosmx_wt.h5ad carries ~20GB of precomputed embeddings in .obsm
+    (Cellina_*, PCA.*, niche_*, scVI, scVIVA, ...) that nothing here reads, plus an
+    obsm['spatial_x'] that alone decompresses to ~40GB (it's ~73% dense but stored as
+    sparse CSR with int64 indices). A full sc.read() pulls all of that into memory
+    before split_indices ever runs, which is enough to OOM well before training starts.
+    Only X, layers['counts'], obs, var, uns, and (for the cellina model, which needs
+    them for setup_anndata/preprocess_spatial_features) obsm['spatial']/['spatial_x']
+    are read here.
+    """
+    with h5py.File(adata_path, 'r') as f:
+        adata = ad.AnnData(X=_read_elem(f['X']), obs=_read_elem(f['obs']), var=_read_elem(f['var']))
+        if 'uns' in f:
+            adata.uns = _read_elem(f['uns'])
+        if 'layers' in f and 'counts' in f['layers']:
+            adata.layers['counts'] = _read_elem(f['layers']['counts'])
+        if need_spatial and 'obsm' in f:
+            for key in ('spatial', 'spatial_x'):
+                if key in f['obsm']:
+                    adata.obsm[key] = _read_elem(f['obsm'][key])
+    return adata
 
 
 def split_indices(adata, holdout_sid, holdout_celltype, batch_key=DEFAULT_BATCH_KEY,
@@ -323,6 +358,7 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
         edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
         rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
         mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
+        nb_deviance = nb_deviance_pop_mean(obs_X=target, pred_X=counterfactual)
 
         results.append(
             dict(
@@ -346,6 +382,7 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
                 edistance_pca=edist_pca,
                 rmse=rmse,
                 mse_lfc=mse_lfc,
+                nb_deviance=nb_deviance,
             )
         )
 
@@ -380,7 +417,7 @@ def main():
     set_seed(DEFAULT_SEED)
 
     print("Loading adata:", args.adata_path)
-    adata = sc.read(args.adata_path)
+    adata = load_adata_lean(args.adata_path, need_spatial=(mc == 'cellina'))
 
     if dataset_name == 'crc':
         DATA_ARGS = ADATA_CRC_ARGS

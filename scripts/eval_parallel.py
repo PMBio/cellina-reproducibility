@@ -48,7 +48,7 @@ CRC_HOLDOUTS = [
 ]
 
 MERFISH_PATHS = [
-    #os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
+    os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.036.h5ad"),    
     os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.039.h5ad"),
     os.path.join(DATA_ROOT, "datasets/MERFISH_mouse_brain/C57BL6J-2.041.h5ad"),
 ]
@@ -66,12 +66,12 @@ HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
 
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina"}
-    #{"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
-    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
-    #{"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
-    #{"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
+    {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina-W", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": "cellina-ablated-W", "extra_args": "--use_cf"},
+    {"class": "cellina_graph", "name": "cellina-graph-W", "extra_args": "--use_cf"},
+    {"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
+    {"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
     {"class": "concert", "name": "concert", "extra_args": "--use_cf"},
 ]
 
