@@ -211,7 +211,7 @@ scvi_log/
 notebooks/models
 spatialprop/data/
 spatialprop/output/
-#*.csv
+*.csv
 *.h5ad
 *.png
 *.pkl
