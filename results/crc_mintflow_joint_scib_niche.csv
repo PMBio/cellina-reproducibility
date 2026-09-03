@@ -1,0 +1,4 @@
+Embedding,Isolated labels,KMeans NMI,KMeans ARI,Silhouette label,cLISI,Silhouette batch,iLISI,KBET,Graph connectivity,PCR comparison,Batch correction,Niche Total,Total
+mintflow_basal,0.6712687,0.05131914794003579,0.0675702737890628,0.51385754,0.48074162,0.8744338,0.4754449,,0.4519343254695533,0,0.45045327836598453,0.3569514513015747,0.3943521821273386
+mintflow_spatial,0.67864907,0.0635867375082684,0.073558019082224,0.51560265,0.5173957,0.86794424,0.43508923,,0.460488838186023,0,0.4408805773233765,0.36975841522216796,0.3982072800626514
+Metric Type,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Batch correction,Batch correction,Batch correction,Batch correction,Batch correction,Aggregate score,Aggregate score,Aggregate score

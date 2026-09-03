@@ -1,0 +1,4 @@
+Embedding,Isolated labels,KMeans NMI,KMeans ARI,Silhouette label,cLISI,BRAS,iLISI,KBET,Graph connectivity,PCR comparison,Batch correction,Cell-type Total,Total
+SIMVI_Intrinsic,0.49635887,0.36676063568889483,0.16007150751494525,0.48460317,0.99889755,0.77488893,0.025560379,0.0941740748866179,0.7017205945098881,0,0.31926879622595034,0.5013383388519287,0.42851052180153737
+SIMVI_Spatial,0.48745716,0.36680912790344167,0.1170290446203121,0.49907452,0.9994122,0.6351256,1.1920929e-07,0.04287161466840249,0.6417800919464691,0,0.26395548065479196,0.4939563751220703,0.40195601733515895
+Metric Type,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Bio conservation,Batch correction,Batch correction,Batch correction,Batch correction,Batch correction,Aggregate score,Aggregate score,Aggregate score

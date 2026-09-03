@@ -1,0 +1,2 @@
+dataset_name,sid,control_domain,target_domain,n_deg,model_name,holdout_celltype,spearman,pearson,precision,direction_match,direction_match_k,direction_match_gt,mixing_index,edistance_global,edistance_local,edistance_pca_log,edistance_pca,rmse,mse_lfc,nb_deviance
+crc,210,REF,CRC,50,baseline,T_cell,0.6661704681872749,0.6941284150273218,0.12,1.0,0.12,0.78,0.8611359999271547,98.05432820070817,103.90876239037125,26.662658229258398,374.86153554074644,7724.238647692058,32.2916996725439,0.3556645133242855

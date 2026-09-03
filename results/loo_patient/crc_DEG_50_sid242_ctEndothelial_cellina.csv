@@ -1,0 +1,2 @@
+dataset_name,sid,control_domain,target_domain,n_deg,model_name,holdout_celltype,spearman,pearson,precision,direction_match,direction_match_k,direction_match_gt,mixing_index,edistance_global,edistance_local,edistance_pca_log,edistance_pca,rmse,mse_lfc,nb_deviance
+crc,242,REF,CRC,50,cellina,Endothelial,0.6465786314525811,0.851131686430324,0.14,1.0,0.14,0.96,0.4227656364928378,72.25547715665114,75.52207432572395,5.387311983160032,241.45111866809663,3338.3040843529275,2.8602929452961154,0.03837203071327149

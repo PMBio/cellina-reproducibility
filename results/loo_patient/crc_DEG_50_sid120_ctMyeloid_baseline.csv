@@ -1,0 +1,2 @@
+dataset_name,sid,control_domain,target_domain,n_deg,model_name,holdout_celltype,spearman,pearson,precision,direction_match,direction_match_k,direction_match_gt,mixing_index,edistance_global,edistance_local,edistance_pca_log,edistance_pca,rmse,mse_lfc,nb_deviance
+crc,120,REF,CRC,50,baseline,Myeloid,0.6894117647058824,0.5832391813214587,0.08,1.0,0.08,0.88,0.4231796463760604,53.14498218098208,54.0948044108902,23.66233297949859,2043.5402446243595,48322.75837164159,13.412078700947445,0.4504669409201106

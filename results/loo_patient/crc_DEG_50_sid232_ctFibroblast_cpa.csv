@@ -1,0 +1,2 @@
+dataset_name,sid,control_domain,target_domain,n_deg,model_name,holdout_celltype,spearman,pearson,precision,direction_match,direction_match_k,direction_match_gt,mixing_index,edistance_global,edistance_local,edistance_pca_log,edistance_pca,rmse,mse_lfc,nb_deviance
+crc,232,REF,CRC,50,cpa,Fibroblast,0.40811524609843935,0.4241007664397717,0.04,1.0,0.04,0.44,0.6616978027296486,63.557292711579706,72.19388755562392,11.3438005776772,753.5986652538304,28659.2140123583,9.721843980350162,0.10593014920243402

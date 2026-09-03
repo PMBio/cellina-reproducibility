@@ -1,0 +1,2 @@
+dataset_name,sid,control_domain,target_domain,n_deg,model_name,holdout_celltype,spearman,pearson,precision,direction_match,direction_match_k,direction_match_gt,mixing_index,edistance_global,edistance_local,edistance_pca_log,edistance_pca,rmse,mse_lfc,nb_deviance
+crc,242,REF,CRC,50,cellina,Epithelial,0.8234813925570227,0.885588683517454,0.3,1.0,0.3,0.94,0.7980637048267658,68.1954411924024,71.81929833470875,7.992290200597513,321.10316025252126,81071.84087993868,8.224733995030006,0.04614598847251637
