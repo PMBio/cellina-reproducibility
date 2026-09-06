@@ -1,0 +1,9 @@
+0 Fibroblast
+0 Epithelial
+0 Myeloid
+1 Fibroblast
+1 Epithelial
+1 Myeloid
+2 Fibroblast
+2 Epithelial
+2 Myeloid
