@@ -27,6 +27,9 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     os.environ["PYTHONHASHSEED"] = str(seed)
 
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.use_deterministic_algorithms(True)
+
 
 def plot_results(df, lambda_type, target_col):
     plt.figure(figsize=(6, 4))
