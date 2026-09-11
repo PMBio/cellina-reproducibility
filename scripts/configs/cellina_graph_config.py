@@ -11,6 +11,7 @@ MODEL_ARGS = {
     "n_layers": 2,
     "convolution_type": 'gat',
     "gene_likelihood": 'nb',
+    "num_neighbors": [20, 20]
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
