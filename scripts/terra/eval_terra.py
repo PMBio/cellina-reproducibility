@@ -6,7 +6,8 @@ universe (ii) is the benchmark's HVGs (`adata_hvg.var_names`, NOT a recomputed H
 --min-cells defaults to 20 and --k to 50 (eval_loo's N_DEG).
 
 Reads inference.py's caches (`ctrl_tok_{hd}`, `pert_tok_{hd}`, `logfc_{hd}.csv`) and
-rebuilds them the same way (notebook cells 23-25) when they are absent.
+rebuilds them the same way (notebook cells 23-25) when they are absent.  --eval-celltypes
+and --universe terra2k add `_{ct}` / `_terra2k` suffixes to those names (see cache_suffix).
 
     python scripts/terra/eval_terra.py --dataset_name crc --adata_path ... \
         --holdout_celltype Fibroblast --variant {ft,frozen}
@@ -22,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
@@ -32,12 +34,12 @@ from scipy.stats import pearsonr, spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common                                   # noqa: E402  (also puts scripts/ on sys.path)
-from counterfactual_analysis import (           # noqa: E402
-    get_lfc, get_global_perturbation_logfc, precision,
-)
+from counterfactual_analysis import (_normalize_counts, get_lfc, precision,   # noqa: E402
+                                     safe_log2_fold_change)
 from terra.inference import embed_dataset       # noqa: E402
 
 SEED = 0
+UNI_HVG = "(ii) n benchmark HVGs"   # = the terra2k genes when --universe terra2k
 SEQ_LEN_CELL = 256      # model_config['data']['seq_len_cell']
 BLUR = 0.01             # terra infer_token_distance default
 N_RANDOM_SETS = 3
@@ -50,75 +52,59 @@ def _dense(m):
     return np.asarray(m.todense()) if sp.issparse(m) else np.asarray(m)
 
 
-def _shift_neighbourhood(batch, d):
-    """Notebook cell 25: add the log-space logFC to neighbour tokens only."""
-    tokens = np.asarray(batch["gene_tokens"])
-    expr = np.asarray(batch["gene_expr"], dtype=np.float64)
-    nb_tok, nb_expr = tokens[:, SEQ_LEN_CELL:], expr[:, SEQ_LEN_CELL:]
-    shift = d[nb_tok]
-    shift[nb_expr <= 0] = 0.0                     # undetected / padded genes are not perturbable
-    expr[:, SEQ_LEN_CELL:] = np.clip(nb_expr + shift, 0.0, None)
-    batch["gene_tokens"], batch["gene_expr"] = tokens, expr
-    return batch
+def cache_suffix(d, scored_ct):
+    """`_{ct}` for an observed scored type, `_terra2k` for the shift-path universe (both stack).
+
+    The terra2k part is not cosmetic: that universe has its own cell set and gene axis, so
+    inference.py's benchmark ctrl_tok/pert_tok/logfc caches must not be picked up.
+    """
+    return (("" if scored_ct == d.holdout_ct else f"_{scored_ct}") +
+            ("" if d.universe == "benchmark" else f"_{d.universe}"))
 
 
-def _map_pert(ds, d):
-    """Perturb with the torch format OFF (terra's perturb_dataset does the same), then restore."""
-    fmt = ds.format
-    out = ds.with_format(None).map(_shift_neighbourhood, batched=True, batch_size=256,
-                                   fn_kwargs={"d": d})
-    out.set_format(type=fmt["type"], columns=fmt["columns"],
-                   output_all_columns=fmt["output_all_columns"])
-    return out
-
-
-def build_inputs(d, tok, model_dir_path, hd, max_cells=None):
+def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
     """ctrl/pert tokenised sets + delta, from inference.py's caches or rebuilt identically."""
     a = d.adata_terra
     args, work = d.args, Path(d.paths["work_dir"])
     work.mkdir(parents=True, exist_ok=True)
+    suf = cache_suffix(d, scored_ct)
     is_ctrl = ((a.obs[args["domains_key"]].isin(args["control_domains"])) &
-               (a.obs[args["labels_key"]].astype(str) == d.holdout_ct)).to_numpy()
+               (a.obs[args["labels_key"]].astype(str) == scored_ct)).to_numpy()
     is_tgt = ((a.obs[args["domains_key"]].astype(str) == hd) &
-              (a.obs[args["labels_key"]].astype(str) == d.holdout_ct)).to_numpy()
+              (a.obs[args["labels_key"]].astype(str) == scored_ct)).to_numpy()
 
-    logfc_csv = work / f"logfc_{hd}.csv"
+    logfc_csv = work / f"logfc_{hd}{suf}.csv"
     if logfc_csv.exists():
-        logfc = pd.read_csv(logfc_csv, index_col=0)["logfc"]
+        logfc_df = pd.read_csv(logfc_csv, index_col=0)
+        assert "logfc" not in logfc_df.columns, f"{logfc_csv} predates the per-cell-type delta"
     else:
-        logfc = get_global_perturbation_logfc(
-            a, control_domain=args["control_domains"][0], holdout_domain=hd,
-            labels_key=args["labels_key"], domains_key=args["domains_key"],
-            holdout_ct=d.holdout_ct)
-        assert np.isfinite(logfc).all(), "logFC contains non-finite values"
-        logfc.rename("logfc").to_csv(logfc_csv)
-    top_genes = logfc.abs().nlargest(common.N_PERT_GENES).index
+        logfc_df = common.perturbation_logfc(d.adata_hvg, args, hd, scored_ct)
+        logfc_df.to_csv(logfc_csv)
+    delta, ct_code = common.token_delta(logfc_df, a, model_dir_path, args["labels_key"])
+    n_mapped = int((delta != 0).sum())
 
     with open(f"{model_dir_path}/token_dictionary.pkl", "rb") as f:
         token_dict = pickle.load(f)
     sym2ens = a.var["ensembl_id"].to_dict()
-    vocab = max(token_dict.values()) + 1
-    delta = np.zeros(vocab, dtype=np.float64)
-    n_mapped = 0
-    for g in top_genes:
-        tid = token_dict.get(sym2ens.get(g))
-        if tid is not None:
-            delta[tid] = logfc[g]
-            n_mapped += 1
-    print(f"{n_mapped}/{common.N_PERT_GENES} perturbation genes mapped to TERRA tokens")
 
-    ctrl_p, pert_p = work / f"ctrl_tok_{hd}", work / f"pert_tok_{hd}"
+    pos_of = {str(c): i for i, c in enumerate(tok.with_format(None)["cell_id"])}
+    ctrl_ids = a.obs.loc[is_ctrl, "cell_id"].astype(str).tolist()
+    if max_cells:
+        ctrl_ids = ctrl_ids[:max_cells]
+    ctrl_rows = [pos_of[c] for c in ctrl_ids]
+
+    ctrl_p, pert_p = work / f"ctrl_tok_{hd}{suf}", work / f"pert_tok_{hd}{suf}"
     if ctrl_p.exists() and pert_p.exists() and max_cells is None:
         ctrl_tok, pert_tok = load_from_disk(str(ctrl_p)), load_from_disk(str(pert_p))
         print(f"loaded cached {ctrl_p} / {pert_p}")
     else:
-        pos_of = {str(c): i for i, c in enumerate(tok.with_format(None)["cell_id"])}
-        ctrl_ids = a.obs.loc[is_ctrl, "cell_id"].astype(str).tolist()
-        if max_cells:
-            ctrl_ids = ctrl_ids[:max_cells]
-        ctrl_tok = tok.select([pos_of[c] for c in ctrl_ids])
-        assert [str(c) for c in ctrl_tok.with_format(None)["cell_id"]] == ctrl_ids
-        pert_tok = _map_pert(ctrl_tok, delta)
+        ctrl_tok = tok.select(ctrl_rows)
+        pert_tok = None
+    assert [str(c) for c in ctrl_tok.with_format(None)["cell_id"]] == ctrl_ids
+    n_pos = len(ctrl_tok.with_format(None)[0]["gene_tokens"])
+    codes = common.position_codes(ctrl_tok, a.obsm["spatial"], ctrl_rows, ct_code, n_pos)
+    if pert_tok is None:
+        pert_tok = common.map_perturbation(ctrl_tok, delta, codes, SEQ_LEN_CELL)
         if max_cells is None:
             ctrl_tok.save_to_disk(str(ctrl_p))
             pert_tok.save_to_disk(str(pert_p))
@@ -128,13 +114,16 @@ def build_inputs(d, tok, model_dir_path, hd, max_cells=None):
     # Random-gene controls (notebook cell 26): same logFC values, random neighbour tokens.
     nb_pool = np.unique(np.asarray(ctrl_tok.with_format(None)["gene_tokens"])[:, SEQ_LEN_CELL:])
     nb_pool = nb_pool[nb_pool != 0]
-    vals = delta[delta != 0]
     rand_toks = []
     for i in range(N_RANDOM_SETS):
-        dr = np.zeros(vocab, dtype=np.float64)
-        dr[np.random.default_rng(SEED + i).choice(nb_pool, len(vals), replace=False)] = vals
-        rand_toks.append(_map_pert(ctrl_tok, dr))
-    print(f"{len(rand_toks)} random-gene control sets: {len(vals)} tokens each, "
+        rng = np.random.default_rng(SEED + i)
+        dr = np.zeros_like(delta)
+        for r, row in enumerate(delta):
+            vals = row[row != 0]
+            if len(vals):
+                dr[r, rng.choice(nb_pool, len(vals), replace=False)] = vals
+        rand_toks.append(common.map_perturbation(ctrl_tok, dr, codes, SEQ_LEN_CELL))
+    print(f"{len(rand_toks)} random-gene control sets: {n_mapped} tokens each, "
           f"drawn from the {len(nb_pool)} tokens present in the control neighbourhoods")
 
     tok2sym = {token_dict[e]: g for g, e in sym2ens.items() if e in token_dict}
@@ -165,7 +154,7 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     assert (np.asarray(pert_tok.with_format(None)["gene_tokens"])[:, :SEQ_LEN_CELL]
             == tokens).all(), "cell-segment token layout moved -- clouds are not paired"
 
-    n_per_tok = np.bincount(tokens.ravel(), minlength=len(delta))
+    n_per_tok = np.bincount(tokens.ravel(), minlength=delta.shape[1])
     n_per_tok[0] = 0                                            # pad token
     cand = np.flatnonzero(n_per_tok >= min_cells)
     utok = np.array([t for t in cand if tok2sym.get(t) in gt_lfc.index])
@@ -198,10 +187,10 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     del base
     torch.cuda.empty_cache()
 
-    is_pert = np.isin(utok, np.flatnonzero(delta != 0))
+    is_pert = np.isin(utok, np.flatnonzero((delta != 0).any(axis=0)))
     in_hvg = np.isin(genes, list(hvg_set))
     uni = {"(i) all token-covered": np.ones(len(utok), bool),
-           "(ii) n benchmark HVGs": in_hvg,
+           UNI_HVG: in_hvg,
            "(iii) minus perturbed genes": ~is_pert}
 
     res, rows = {}, []
@@ -234,6 +223,55 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     return res, per_gene, pd.DataFrame(rows)
 
 
+def cellina_abs_lfc(cf_path, mean_ctrl, ctrl_names, index):
+    """|log2FC(mean CP10K counterfactual, mean CP10K control)| per gene -> Series over `index`.
+
+    The counterfactual is written by scripts/cellina_node_pert.py through
+    train_loo.save_recon_adata, i.e. counts-like in .X, obs = the control cells.
+    """
+    cf = ad.read_h5ad(cf_path)
+    assert cf.n_vars == len(index), f"{cf_path.name}: {cf.n_vars} genes vs {len(index)}"
+    names = cf.obs_names.astype(str)
+    missing = set(ctrl_names) - set(names)
+    assert not missing, f"{cf_path.name}: {len(missing)} control cells missing from the counterfactual"
+    x = _dense(cf.layers["counts"] if cf.X is None else cf.X)[pd.Index(names).get_indexer(ctrl_names)]
+    return pd.Series(np.abs(safe_log2_fold_change(_normalize_counts(x).mean(axis=0), mean_ctrl)),
+                     index=index)
+
+
+def score_cellina_cf(d, name, scored_ct, hd, genes, truth, k):
+    """Score cellina's node-perturbation counterfactuals on the same genes / |gt| as TERRA.
+
+    Counterfactuals live under the `{sid}_terra2k` sid because train_loo derives the sid from
+    the adata stem.  Returns ({arm: metrics}, {arm: per-gene |log2FC|}) or ({}, {}) if absent.
+    """
+    args = d.args
+    base = Path(common.DATA_ROOT) / "datasets/crc" / f"{d.sid}_terra2k" / scored_ct
+    paths = {"cellina": base / f"{name}_counterfactual_x_{hd}.h5ad"}
+    for i in range(1, N_RANDOM_SETS + 1):
+        paths[f"cellina_random_{i}"] = base / f"{name}-random{i}_counterfactual_x_{hd}.h5ad"
+    missing = [p.name for p in paths.values() if not p.exists()]
+    if missing:
+        print(f"[cellina] WARNING: skipping {name} -- {len(missing)} file(s) missing in {base} "
+              f"(first: {missing[0]})")
+        return {}, {}
+
+    is_ctrl = ((d.adata_hvg.obs[args["domains_key"]].isin(args["control_domains"])) &
+               (d.adata_hvg.obs[args["labels_key"]].astype(str) == scored_ct)).to_numpy()
+    ctrl_names = d.adata_hvg.obs_names[is_ctrl].astype(str)
+    mean_ctrl = _normalize_counts(_dense(d.adata_hvg.layers["counts"][is_ctrl])).mean(axis=0)
+    index = d.adata_hvg.var_names.astype(str)   # same gene axis (and naming) as `genes`
+
+    vecs = {arm: cellina_abs_lfc(p, mean_ctrl, ctrl_names, index).loc[genes].to_numpy()
+            for arm, p in paths.items()}
+    scored = {arm: dict(precision=precision(truth, v, k=k), pearson=pearsonr(truth, v)[0],
+                        spearman=spearmanr(truth, v)[0]) for arm, v in vecs.items()}
+    print(f"[cellina] {name}: {len(ctrl_names):,} control cells, {len(genes)} scored genes | "
+          f"precision@{k}={scored['cellina']['precision']:.3f} "
+          f"spearman={scored['cellina']['spearman']:.3f}")
+    return scored, vecs
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
@@ -243,34 +281,60 @@ def main():
     p.add_argument("--min-cells", type=int, default=20)
     p.add_argument("--k", type=int, default=50)          # eval_loo.N_DEG
     p.add_argument("--max-cells", type=int, default=None, help="smoke test: first N control cells")
+    p.add_argument("--eval-celltypes", default=None,
+                   help="comma-separated cell types to score (default: the holdout only)")
+    p.add_argument("--universe", default="benchmark", choices=["benchmark", "terra2k"],
+                   help="HVG axis: the benchmark's 2000 HVGs, or terra's own (shift path)")
+    p.add_argument("--cellina-cf", default=None,
+                   help="cellina counterfactual model name (e.g. cellina-pert) to score alongside")
     a = p.parse_args()
 
     np.random.seed(SEED)
     torch.manual_seed(SEED)
     model_name = "terra" if a.variant == "ft" else "terra-frozen"
     md = common.model_dir()
-    d = common.load_dataset(a.dataset_name, a.adata_path, a.holdout_celltype, md)
+    d = common.load_dataset(a.dataset_name, a.adata_path, a.holdout_celltype, md, universe=a.universe)
     encoder = Path(d.paths["work_dir"]) / "ft_bundle" if a.variant == "ft" else md
     assert Path(encoder).exists(), f"encoder bundle missing: {encoder}"
     tok = common.tokenize_cached(d.adata_terra, md, d.paths["tok_cache"])
     hvg_set = set(d.adata_hvg.var_names.astype(str))
     corr_dir = Path(d.paths["corr_dir"])
     corr_dir.mkdir(parents=True, exist_ok=True)
+    uni_suf = "" if a.universe == "benchmark" else f"-{a.universe}"
 
-    for hd in d.args["holdout_domains"]:
-        inputs = build_inputs(d, tok, md, hd, max_cells=a.max_cells)
-        n_mapped = inputs[-1]
-        res, per_gene, table = score_gene_shift(encoder, *inputs[:-1], hvg_set,
-                                                a.min_cells, a.k)
-        print(table.round(4).to_string(index=False))
+    for ct in (a.eval_celltypes.split(",") if a.eval_celltypes else [a.holdout_celltype]):
+        ho = "" if ct == a.holdout_celltype else f"-ho{a.holdout_celltype}"
+        for hd in d.args["holdout_domains"]:
+            inputs = build_inputs(d, tok, md, hd, ct, max_cells=a.max_cells)
+            n_mapped = inputs[-1]
+            res, per_gene, table = score_gene_shift(encoder, *inputs[:-1], hvg_set,
+                                                    a.min_cells, a.k)
 
-        csv = Path(d.paths["work_dir"]) / f"gene_shift_{a.variant}_{hd}.csv"
-        per_gene.to_csv(csv, index=False)
-        out = corr_dir / f"{d.sid}_{model_name}-native_{a.holdout_celltype}_{hd}.json"
-        out.write_text(json.dumps(
-            dict(res, variant=a.variant, min_cells=a.min_cells,
-                 n_perturbed_mapped=n_mapped), indent=2))
-        print(f"wrote {out}\nwrote {csv}")
+            if a.cellina_cf:
+                m = per_gene["in_hvg"].to_numpy()
+                scored, vecs = score_cellina_cf(d, a.cellina_cf, ct, hd, per_gene["gene"].to_numpy()[m],
+                                                per_gene["abs_log2fc"].to_numpy()[m], a.k)
+                rnd = [v for s, v in scored.items() if s.startswith("cellina_random_")]
+                if scored:
+                    res[UNI_HVG].update(
+                        cellina_model=a.cellina_cf,
+                        **{f"cellina_{f}": scored["cellina"][f] for f in ("precision", "pearson", "spearman")},
+                        **{f"cellina_random_{f}_mean": float(np.mean([r[f] for r in rnd]))
+                           for f in ("precision", "pearson", "spearman")})
+                    table = pd.concat([table, pd.DataFrame(
+                        [dict(universe=UNI_HVG, arm=s, n_genes=int(m.sum()), **v)
+                         for s, v in scored.items()])], ignore_index=True)
+                    for arm, v in vecs.items():
+                        per_gene.loc[m, f"{arm}_abs_log2fc"] = v
+            print(table.round(4).to_string(index=False))
+
+            csv = Path(d.paths["work_dir"]) / f"gene_shift_{a.variant}_{hd}{cache_suffix(d, ct)}.csv"
+            per_gene.to_csv(csv, index=False)
+            out = corr_dir / f"{d.sid}_{model_name}{ho}-native{uni_suf}_{ct}_{hd}.json"
+            out.write_text(json.dumps(
+                dict(res, variant=a.variant, min_cells=a.min_cells,
+                     n_perturbed_mapped=n_mapped), indent=2))
+            print(f"wrote {out}\nwrote {csv}")
 
 
 if __name__ == "__main__":
