@@ -21,11 +21,7 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 PX_TO_UM = {"crc": 0.12028, "merfish": 0.109}
-MODEL_REPO = os.environ.get("TERRA_MODEL_REPO", "lotfollahi-lab/TERRA-96M")
-# Suffix on every model-dependent artefact/model name for non-default bundles ("-112M");
-# the 96M default keeps the untagged names. Token dictionaries are byte-identical, so the
-# tokenised/perturbed token caches are shared.
-MODEL_TAG = "" if MODEL_REPO.endswith("-96M") else "-" + MODEL_REPO.rsplit("-", 1)[-1]
+MODEL_REPO = "lotfollahi-lab/TERRA-96M"
 N_PERT_GENES = 200
 
 DATA_ROOT = os.environ.get("DATA_ROOT", ".")
@@ -200,6 +196,30 @@ def tokenize_cached(adata_terra, model_dir, tok_cache, nproc=16):
         shutil.rmtree(tmp, ignore_errors=True)
     assert len(tok) == adata_terra.n_obs, f"tokenised {len(tok)} rows vs {adata_terra.n_obs} cells"
     return tok
+
+
+EMB_KEYS = ["cell_emb", "spatial_cell_emb", "neighborhood_emb"]
+EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
+                  include_spatial_cell_emb=True, return_token_embeddings=False,
+                  ignore_spc_tokens=True, num_workers=8)
+
+
+def embed_cached(tok, bundle, cache):
+    """embed_dataset over `tok`, cached as an npz keyed by cell_id -> (emb dict, cell ids)."""
+    from terra.inference import embed_dataset
+
+    cache = Path(cache)
+    if cache.exists():
+        z = np.load(cache, allow_pickle=True)
+        print("loaded cached embeddings", cache)
+        return {k: z[k] for k in EMB_KEYS}, [str(c) for c in z["cell_id"]]
+    emb = embed_dataset(dataset=tok, model_folder_path=str(bundle), **EMB_KWARGS)
+    ids = [str(c) for c in tok.with_format(None)["cell_id"]]
+    emb = {k: np.asarray(emb[k]) for k in EMB_KEYS}
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(cache, cell_id=np.array(ids, dtype=object), **emb)
+    print("wrote", cache)
+    return emb, ids
 
 
 # --- neighbour perturbation, shared by inference.py and eval_terra.py ------------------

@@ -3,14 +3,16 @@
 PIPELINE_SPEC.md "`eval_terra.py` CLI" + notebooks/loo_benchmarks/terra/GENE_SHIFT_SPEC.md.
 Copied from notebook cell 28 (`score_gene_shift`) with three deliberate changes:
 universe (ii) is the benchmark's HVGs (`adata_hvg.var_names`, NOT a recomputed HVG set),
---min-cells defaults to 20 and --k to 50 (eval_loo's N_DEG).
+--min-cells defaults to 20 and --k to 100 with 10 random control sets (TERRA paper protocol).
 
 Reads inference.py's caches (`ctrl_tok_{hd}`, `pert_tok_{hd}`, `logfc_{hd}.csv`) and
 rebuilds them the same way (notebook cells 23-25) when they are absent.  --eval-celltypes
 and --universe terra2k add `_{ct}` / `_terra2k` suffixes to those names (see cache_suffix).
 
     python scripts/terra/eval_terra.py --dataset_name crc --adata_path ... \
-        --holdout_celltype Fibroblast --variant {ft,frozen}
+        --holdout_celltype Fibroblast --variant frozen
+    python scripts/terra/eval_terra.py --dataset_name crc --adata_path ... \
+        --holdout_celltype Fibroblast --variant lora --epoch 5
 """
 import os
 
@@ -42,7 +44,7 @@ SEED = 0
 UNI_HVG = "(ii) n benchmark HVGs"   # = the terra2k genes when --universe terra2k
 SEQ_LEN_CELL = 256      # model_config['data']['seq_len_cell']
 BLUR = 0.01             # terra infer_token_distance default
-N_RANDOM_SETS = 3
+N_RANDOM_SETS = 10      # TERRA paper protocol
 EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
                   include_spatial_cell_emb=True, return_token_embeddings=True,
                   ignore_spc_tokens=True, num_workers=8)
@@ -248,8 +250,9 @@ def score_cellina_cf(d, name, scored_ct, hd, genes, truth, k):
     args = d.args
     base = Path(common.DATA_ROOT) / "datasets/crc" / f"{d.sid}_terra2k" / scored_ct
     paths = {"cellina": base / f"{name}_counterfactual_x_{hd}.h5ad"}
-    for i in range(1, N_RANDOM_SETS + 1):
-        paths[f"cellina_random_{i}"] = base / f"{name}-random{i}_counterfactual_x_{hd}.h5ad"
+    # however many random arms cellina_node_pert.py wrote -- not necessarily N_RANDOM_SETS.
+    for p in sorted(base.glob(f"{name}-random*_counterfactual_x_{hd}.h5ad")):
+        paths[f"cellina_random_{p.name.split('-random')[1].split('_')[0]}"] = p
     missing = [p.name for p in paths.values() if not p.exists()]
     if missing:
         print(f"[cellina] WARNING: skipping {name} -- {len(missing)} file(s) missing in {base} "
@@ -277,9 +280,10 @@ def main():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--variant", required=True, choices=["ft", "frozen"])
+    p.add_argument("--variant", required=True, choices=["frozen", "lora"])
+    p.add_argument("--epoch", type=int, default=None, help="--variant lora: LoRA bundle epoch")
     p.add_argument("--min-cells", type=int, default=20)
-    p.add_argument("--k", type=int, default=50)          # eval_loo.N_DEG
+    p.add_argument("--k", type=int, default=100)         # TERRA paper protocol
     p.add_argument("--max-cells", type=int, default=None, help="smoke test: first N control cells")
     p.add_argument("--eval-celltypes", default=None,
                    help="comma-separated cell types to score (default: the holdout only)")
@@ -291,10 +295,13 @@ def main():
 
     np.random.seed(SEED)
     torch.manual_seed(SEED)
-    model_name = "terra" if a.variant == "ft" else "terra-frozen"
-    md = common.model_dir()
+    assert (a.epoch is not None) == (a.variant == "lora"), "--epoch is required iff --variant lora"
+    model_name = "terra-frozen" if a.variant == "frozen" else f"terra-lora-ep{a.epoch}"
+    md = common.model_dir()                      # pretrained TERRA-96M bundle
     d = common.load_dataset(a.dataset_name, a.adata_path, a.holdout_celltype, md, universe=a.universe)
-    encoder = Path(d.paths["work_dir"]) / "ft_bundle" if a.variant == "ft" else md
+    # lora: one slide-level bundle (self-sup on all cells), not a per-holdout fine-tune.
+    encoder = md if a.variant == "frozen" else (
+        Path(d.paths["out_dir"]).parent / "terra" / f"lora_ep{a.epoch}" / "lora_bundle")
     assert Path(encoder).exists(), f"encoder bundle missing: {encoder}"
     tok = common.tokenize_cached(d.adata_terra, md, d.paths["tok_cache"])
     hvg_set = set(d.adata_hvg.var_names.astype(str))
@@ -303,7 +310,6 @@ def main():
     uni_suf = "" if a.universe == "benchmark" else f"-{a.universe}"
 
     for ct in (a.eval_celltypes.split(",") if a.eval_celltypes else [a.holdout_celltype]):
-        ho = "" if ct == a.holdout_celltype else f"-ho{a.holdout_celltype}"
         for hd in d.args["holdout_domains"]:
             inputs = build_inputs(d, tok, md, hd, ct, max_cells=a.max_cells)
             n_mapped = inputs[-1]
@@ -330,10 +336,10 @@ def main():
 
             csv = Path(d.paths["work_dir"]) / f"gene_shift_{a.variant}_{hd}{cache_suffix(d, ct)}.csv"
             per_gene.to_csv(csv, index=False)
-            out = corr_dir / f"{d.sid}_{model_name}{ho}-native{uni_suf}_{ct}_{hd}.json"
+            out = corr_dir / f"{d.sid}_{model_name}-native{uni_suf}_{ct}_{hd}.json"
             out.write_text(json.dumps(
-                dict(res, variant=a.variant, min_cells=a.min_cells,
-                     n_perturbed_mapped=n_mapped), indent=2))
+                dict(res, variant=a.variant, k=a.k, n_random_sets=N_RANDOM_SETS,
+                     min_cells=a.min_cells, n_perturbed_mapped=n_mapped), indent=2))
             print(f"wrote {out}\nwrote {csv}")
 
 

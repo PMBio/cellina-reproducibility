@@ -6,6 +6,7 @@ onto the benchmark's own preprocessing (scripts/terra/common.py). See PIPELINE_S
 
     python scripts/terra/inference.py --dataset_name crc --adata_path $DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad \
         --holdout_celltype Fibroblast --variant frozen [--skip-eval] [--max-cells N]
+    python scripts/terra/inference.py ... --variant lora --epoch 5
 """
 import os
 
@@ -46,10 +47,7 @@ hf_datasets.disable_progress_bars()
 for _n in ("terra", "datasets", "accelerate"):
     logging.getLogger(_n).setLevel(logging.WARNING)
 
-EMB_KEYS = ["cell_emb", "spatial_cell_emb", "neighborhood_emb"]
-EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
-                  include_spatial_cell_emb=True, return_token_embeddings=False,
-                  ignore_spc_tokens=True, num_workers=8)
+EMB_KEYS, EMB_KWARGS = common.EMB_KEYS, common.EMB_KWARGS
 SEQ_LEN_CELL = 256   # model_config['data']['seq_len_cell']
 DECODER_EMB = ["cell_emb", "neighborhood_emb"]   # cellina's cat(z, s) readout
 SEED = 0
@@ -107,22 +105,6 @@ def _smoke_terra2k(sid, smoke_path):
     print(f"[smoke] wrote {dst} ({b.n_obs} cells x {b.n_vars} genes)")
 
 
-def embed_cached(tok, enc, cache):
-    """embed_dataset over `tok`, cached as an npz keyed by cell_id (notebook cell 31)."""
-    cache = Path(cache)
-    if cache.exists():
-        z = np.load(cache, allow_pickle=True)
-        print("loaded cached embeddings", cache)
-        return {k: z[k] for k in EMB_KEYS}, [str(c) for c in z["cell_id"]]
-    emb = embed_dataset(dataset=tok, model_folder_path=str(enc), **EMB_KWARGS)
-    ids = [str(c) for c in tok.with_format(None)["cell_id"]]
-    emb = {k: np.asarray(emb[k]) for k in EMB_KEYS}
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(cache, cell_id=np.array(ids, dtype=object), **emb)
-    print("wrote", cache)
-    return emb, ids
-
-
 def perturb(d, tok, model_dir, hd, work_dir, scored_ct):
     """Per-neighbour-cell-type logFC over the benchmark HVGs -> additive shift on neighbour tokens.
 
@@ -165,7 +147,7 @@ def perturb(d, tok, model_dir, hd, work_dir, scored_ct):
     return is_control, ctrl_tok, pert_tok
 
 
-def train_decoder(d, emb, variant, work_dir, epochs, dry_run=False):
+def train_decoder(d, emb, variant, work_dir, epochs):
     """`python -m terra.training.decode` on the benchmark HVGs, via the NPZ (3-way split) path.
 
     --train-adata/--test-adata sets has_val=False, which makes decode.py use the HELD-OUT
@@ -182,8 +164,6 @@ def train_decoder(d, emb, variant, work_dir, epochs, dry_run=False):
            "--epochs", str(epochs), "--hidden-dim", "512", "--mlp-depth", "2", "--layer-norm",
            "--early-stop-patience", "5", "--device", "0", "--seed", str(SEED),
            "--output", str(ckpt), "--metrics-json", str(metrics)]
-    if dry_run:
-        return cmd
     # Artefacts of the 384-d spatial_cell_emb readout / the val==test split must not be reused.
     for stale in (work_dir / f"decoder_train_{variant}.h5ad", work_dir / f"decoder_test_{variant}.h5ad",
                   work_dir / "gene_list.txt"):
@@ -243,22 +223,17 @@ def main():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--variant", required=True, choices=["ft", "frozen"])
+    p.add_argument("--variant", required=True, choices=["frozen", "lora"])
+    p.add_argument("--epoch", type=int, default=None,
+                   help="--variant lora: which LoRA epoch bundle (slide_dir/terra/lora_ep{N})")
     p.add_argument("--eval-celltypes", default=None,
                    help="comma-separated cell types to score with this model's decoder "
                         "(default: the holdout only)")
     p.add_argument("--skip-eval", action="store_true")
     p.add_argument("--max-cells", type=int, default=None, help="smoke only: shrink the input h5ad")
     p.add_argument("--decoder-epochs", type=int, default=100)
-    p.add_argument("--print-decode-cmd", action="store_true",
-                   help="print the terra.training.decode command and exit (no GPU needed)")
     a = p.parse_args()
-
-    if a.print_decode_cmd:
-        work = Path(common.layout(a.dataset_name, a.adata_path, a.holdout_celltype)["work_dir"])
-        print(" ".join(train_decoder(SimpleNamespace(), np.zeros((1, 768), np.float32),
-                                     a.variant, work, a.decoder_epochs, dry_run=True)))
-        return
+    assert (a.epoch is not None) == (a.variant == "lora"), "--epoch is for --variant lora only"
 
     assert torch.cuda.is_available(), "TERRA requires a GPU"
     model_dir = common.model_dir()
@@ -272,18 +247,24 @@ def main():
     work_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    enc = work_dir / "ft_bundle" if a.variant == "ft" else Path(model_dir)
+    # Both encoders are SLIDE-level (the LoRA fine-tune is self-supervised on all cells, the
+    # frozen bundle is the pretrained one), so bundle, embeddings and model name carry no
+    # holdout tag. Only the decoder is LOO, per scored cell type.
+    slide_dir = Path(paths["out_dir"]).parent / "terra"
+    if a.variant == "lora":
+        ep_dir = slide_dir / f"lora_ep{a.epoch}"
+        enc, emb_cache = ep_dir / "lora_bundle", ep_dir / "emb_lora.npz"
+        variant, model_name = f"lora_ep{a.epoch}", f"terra-lora-ep{a.epoch}"
+    else:
+        enc, emb_cache = Path(model_dir), slide_dir / "emb_frozen.npz"
+        variant, model_name = "frozen", "terra-frozen"
     if not enc.exists():
-        raise SystemExit(f"encoder bundle missing: {enc} -- run scripts/terra/finetuning.py first")
-    if a.variant == "ft" and common.MODEL_TAG:
-        raise SystemExit("ft_bundle was fine-tuned from TERRA-96M; only --variant frozen supports TERRA_MODEL_REPO")
-    variant = a.variant + common.MODEL_TAG          # keys emb cache + decoder ckpt per bundle
-    model_name = ("terra" if a.variant == "ft" else "terra-frozen") + common.MODEL_TAG
+        raise SystemExit(f"encoder bundle missing: {enc} -- run scripts/terra/finetuning_lora.py first")
 
     tok = common.tokenize_cached(d.adata_terra, model_dir, paths["tok_cache"])
 
-    # --- embed every cell (cached, keyed by variant) ---
-    emb, ids = embed_cached(tok, enc, paths["emb_cache"](variant))
+    # --- embed every cell (cached per slide x encoder) ---
+    emb, ids = common.embed_cached(tok, enc, emb_cache)
     obs_ids = d.adata_terra.obs["cell_id"].astype(str)
     # cellina's readout: cat(z from the cell's own counts, s from its neighbourhood)
     # (cellina/src/cellina/_cellina_module.py:229-252).
@@ -296,15 +277,15 @@ def main():
     var_names = list(d.adata_hvg.var_names)
 
     # Scored types: the holdout by default. --eval-celltypes scores other types with the SAME
-    # encoder (only the fine-tune is holdout-specific) but the decoder is always LOO for the
-    # scored type: its own split_indices, trained in its own work_dir, so that type's CRC cells
-    # never enter decoder training. Outputs go to the type's out_dir under -ho{holdout}.
+    # encoder (the encoder is never held out) but the decoder is always LOO for the scored
+    # type: its own split_indices, trained in its own work_dir, so that type's CRC cells never
+    # enter decoder training.
     scored_cts = a.eval_celltypes.split(",") if a.eval_celltypes else [a.holdout_celltype]
+    name = model_name
     for ct in scored_cts:
         if ct == a.holdout_celltype:
-            name, ct_dir, ckpt = model_name, out_dir, ckpt_ho
+            ct_dir, ckpt = out_dir, ckpt_ho
         else:
-            name = f"{model_name}-ho{a.holdout_celltype}"
             lay = common.layout(a.dataset_name, adata_path, ct)
             ct_dir, ct_work = Path(lay["out_dir"]), Path(lay["work_dir"])
             ct_work.mkdir(parents=True, exist_ok=True)
@@ -313,8 +294,7 @@ def main():
                                        holdout_domains=args["holdout_domains"], seed=0)
             assert not (set(te) & set(tr)), "scored type's CRC cells leaked into decoder train"
             d_ct = SimpleNamespace(**{**vars(d), "train_idx": tr, "val_idx": va, "test_idx": te})
-            ckpt = train_decoder(d_ct, scemb, f"{variant}_ho{a.holdout_celltype}", ct_work,
-                                 a.decoder_epochs)
+            ckpt = train_decoder(d_ct, scemb, variant, ct_work, a.decoder_epochs)
         ct_dir.mkdir(parents=True, exist_ok=True)
 
         # --- recon: every scored-ct cell, unperturbed (eval_loo needs it even with --use_cf) ---
@@ -323,7 +303,10 @@ def main():
         recon = decode(scemb[is_ct], var_names, ckpt)
         print(f"decoded recon {recon.shape} ({ct} cells x {len(var_names)} HVGs)")
         save_recon_adata(d.adata_hvg[is_ct].copy(), recon, str(recon_path), latents=scemb[is_ct])
-        shutil.copyfile(recon_path, ct_dir / f"{name}-null_recon_x.h5ad")
+        # the null arm reconstructs the same cells from the same latents: hardlink, do not duplicate
+        null_recon = ct_dir / f"{name}-null_recon_x.h5ad"
+        null_recon.unlink(missing_ok=True)
+        os.link(recon_path, null_recon)
         del recon
 
         for hd in args["holdout_domains"]:
@@ -351,7 +334,7 @@ def main():
         for m in (name, f"{name}-null"):
             cmd = [sys.executable, "scripts/eval_loo.py", "--dataset_name", a.dataset_name,
                    "--adata_path", adata_path, "--holdout_celltype", ct,
-                   "--model_class", "terra", "--model_name", m, "--use_cf"]
+                   "--model_class", "terra", "--model_name", m, "--use_cf", "--log_norm_x"]
             print(" ".join(cmd))
             subprocess.run(cmd, check=True, cwd=str(_REPO))
         for hd in args["holdout_domains"]:

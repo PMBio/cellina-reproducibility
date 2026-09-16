@@ -1,19 +1,28 @@
 # TERRA on the LOO benchmark
 
-Three scripts (spec: `PIPELINE_SPEC.md`), all run from the repo root:
+Five scripts (spec: `PIPELINE_SPEC.md`; protocol + how to run the whole thing:
+`queue/README.md`), all run from the repo root:
 
 - `common.py` — benchmark preprocessing (`train_loo.preprocess_*` + `split_indices`) plus a
-  row-identical TERRA-harmonised all-genes twin, tokenisation cache, path layout. Not a CLI.
-- `finetuning.py` — supervised block-11 fine-tune on the domain label → `work_dir/ft_bundle/`.
+  row-identical TERRA-harmonised all-genes twin, tokenisation + embedding caches, path layout.
+  Not a CLI.
+- `finetuning_lora.py` — self-supervised (I-JEPA) LoRA fine-tune of TERRA-96M on **all** cells of
+  one slide, 5 epochs, lr 1e-4, batch 64. Exports every epoch checkpoint to
+  `{slide}/terra/lora_ep{N}/lora_bundle`, embeds all cells into `.../lora_ep{N}/emb_lora.npz`,
+  runs the collapse guard and writes `{slide}/terra/epoch_selection.json`.
 - `inference.py` — embed → count decoder (`terra.training.decode`, gene list = the 2000 benchmark
   HVGs in order) → neighbour-token perturbation → writes the four h5ads `eval_loo.py` reads → runs
-  `eval_loo.py`. `--variant ft` uses `work_dir/ft_bundle`, `--variant frozen` the pretrained bundle.
+  `eval_loo.py`. `--variant frozen` = the pretrained bundle, `--variant lora --epoch N` = the
+  epoch-N LoRA bundle.
 - `eval_terra.py` — TERRA-native gene-embedding-shift scoring (no decoder), reads inference's caches.
+- `summarize.py` — all 6 slides → `results/terra_crc_decoder_DEG_50.csv`,
+  `results/terra_crc_shift_terra2k.csv`.
+- `make_terra2k.py` — builds the shift path's `{sid}_terra2k.h5ad` (terra's own harmonised HVGs).
 
 Env: `/data/ddimitrov/software/miniforge3/envs/terra/bin/python` (has terra + everything `eval_loo.py`
 imports; `cellina` is absent, so `preprocess_spatial_features` prints a warning and skips the spatial
 graph — `eval_loo.py` never uses it for scoring). `export DATA_ROOT=/data/ddimitrov/data`.
-GPU: `CUDA_VISIBLE_DEVICES=0` only — `embed_dataset` hardcodes `cuda:0`; GPU 1 is someone else's.
+One GPU per worker; `embed_dataset` hardcodes `cuda:0`, so pick the device with `CUDA_VISIBLE_DEVICES`.
 
 One (slide, cell type):
 
@@ -21,30 +30,27 @@ One (slide, cell type):
 export DATA_ROOT=/data/ddimitrov/data CUDA_VISIBLE_DEVICES=0
 PY=/data/ddimitrov/software/miniforge3/envs/terra/bin/python
 A=$DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad
-$PY scripts/terra/finetuning.py --dataset_name crc --adata_path $A --holdout_celltype Fibroblast
-$PY scripts/terra/inference.py  --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant ft
+$PY scripts/terra/finetuning_lora.py --dataset_name crc --adata_path $A
+$PY scripts/terra/inference.py  --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant lora --epoch 5
 $PY scripts/terra/inference.py  --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant frozen
-$PY scripts/terra/eval_terra.py --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant ft
+$PY scripts/terra/eval_terra.py --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant lora --epoch 5 \
+    --universe terra2k --cellina-cf cellina-pert
 ```
 
-All three CRC slides:
+All six slides: `scripts/terra/queue/launch_overnight.sh` (two GPUs, balanced by cell count).
 
-```bash
-for s in crc_232 crc_231 crc_221; do
-  A=$DATA_ROOT/datasets/crc/raw_zenodo/$s.h5ad
-  $PY scripts/terra/finetuning.py --dataset_name crc --adata_path $A --holdout_celltype Fibroblast &&
-  $PY scripts/terra/inference.py  --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant ft
-done
-```
+Outputs land in `$DATA_ROOT/datasets/crc/{sid}/{ct}/` — `{model}_recon_x.h5ad`,
+`{model}_counterfactual_x_CRC.h5ad` and the `{model}-null` pair, exactly the files
+`eval_loo.py --use_cf` loads; `{model}` is `terra-frozen` or `terra-lora-ep{N}`. Caches, decoder
+checkpoint/metrics, `logfc_CRC.csv` and the `ctrl_tok_CRC`/`pert_tok_CRC` tokenised sets sit under
+`.../{ct}/terra/`; the slide-level encoder artefacts under `.../{sid}/terra/`. Scores go to
+`$DATA_ROOT/datasets/crc/correlations/{sid}_{model}-cf_{ct}_CRC.json`. `inference.py` calls
+`eval_loo.py` itself (skip with `--skip-eval`). `--max-cells N` shrinks the input h5ad for smoke
+tests only.
 
-Outputs land in `$DATA_ROOT/datasets/crc/{sid}/Fibroblast/` — `terra_recon_x.h5ad`,
-`terra_counterfactual_x_CRC.h5ad` and the `terra-null` pair (`terra-frozen*` for the frozen arm),
-exactly the files `eval_loo.py --use_cf` loads. Caches, decoder checkpoint/metrics, `logfc_CRC.csv`
-and the `ctrl_tok_CRC`/`pert_tok_CRC` tokenised sets sit under `.../Fibroblast/terra/`. Scores go to
-`$DATA_ROOT/datasets/crc/correlations/{sid}_{model}-cf_Fibroblast_CRC.json`. `inference.py` calls
-`eval_loo.py` itself (skip with `--skip-eval`); to re-score later, add
-`{"class": "terra", "name": "terra", "extra_args": "--use_cf"}` (and `"terra-null"`) to `MODELS` in
-`scripts/eval_parallel.py`. `--max-cells N` shrinks the input h5ad for smoke tests only.
+**Encoder exposure.** The LoRA fine-tune is self-supervised on every cell of the slide, so the
+encoder is *not* held out; the decoder still is, per scored cell type. `summarize.py` records this
+in `encoder_exposure`.
 
 **Species.** TERRA is human-only: its vocabulary is 21,952 ENSG tokens, zero ENSMUSG. The merfish
 branch in `common.py` is a cross-species hack — mouse symbols upper-cased and looked up as human

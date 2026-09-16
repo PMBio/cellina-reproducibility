@@ -13,10 +13,12 @@ belongs to someone else. Agents may run smoke tests on small subsets; full runs 
 
 | file | owner | job |
 |---|---|---|
-| `common.py` | agent A | data loading = benchmark preprocessing + TERRA harmonise/tokenise; path layout |
-| `finetuning.py` | agent A | block-11 supervised fine-tune on the domain label, repack bundle (from `finetune_terra.py`) |
+| `common.py` | agent A | data loading = benchmark preprocessing + TERRA harmonise/tokenise; path + embedding caches |
+| `finetuning_lora.py` | agent A | self-supervised LoRA fine-tune on all cells, per-epoch bundle/embedding export + collapse guard |
 | `inference.py` | agent B | embed → count decoder → neighbour perturbation → write `eval_loo.py`-format h5ads → call `eval_loo.py` |
 | `eval_terra.py` | agent C | TERRA-native scoring (paper protocol B, gene-embedding W2 shift; no decoder) → JSON next to the others |
+| `summarize.py` | agent A | all 6 slides x arms → `results/terra_crc_{decoder_DEG_50,shift_terra2k}.csv` |
+| `queue/` | agent A | one worker per GPU: fine-tune → arms → decoder path → shift path → summary (`queue/README.md`) |
 
 ## Fixed decisions
 
@@ -28,11 +30,14 @@ belongs to someone else. Agents may run smoke tests on small subsets; full runs 
   (the a330d tree is read-only for us). Agent B creates symlinks
   `$DATA_ROOT/datasets/crc/raw_zenodo -> /data/a330d/datasets/crc/raw_zenodo` and
   `$DATA_ROOT/datasets/MERFISH_mouse_brain -> /data/a330d/datasets/MERFISH_mouse_brain`.
-- Slides now: `crc_232`, `crc_231`, `crc_221`; holdout `Fibroblast`. Merfish only wired, not run.
+- Slides (final): `crc_120`, `crc_210`, `crc_221`, `crc_231`, `crc_232`, `crc_242`; scored cell types
+  per slide = the `cellina-pert` rows of `origin/results:results/loo_cellina_crc_DEG_50_pert_v2.csv`.
+  Merfish only wired, not run.
 - Model: `lotfollahi-lab/TERRA-96M` (HF cache already has it; `terra.download_pretrained`).
-- Fine-tune: targets `["11.attn.qkv","11.attn.proj","11.mlp.fc1","11.mlp.fc2"]`, lr 1e-4, batch 100,
-  `--epochs 30 --patience 3` (patience is a CLI arg, forwarded into `args["finetune"]["patience"]`),
-  label = the dataset's `domains_key` (crc: `typ_clean`, classes = whatever is present, e.g. REF/TVA/CRC).
+- Fine-tune (final): self-supervised I-JEPA LoRA on ALL cells of the slide (no labels, no holdout);
+  r16 / alpha 256 / dropout 0.1 on `qkv,proj,fc1,fc2`, lr 1e-4, batch 64, 5 epochs, `save_every 1`.
+  Every epoch checkpoint is exported + embedded + collapse-guarded; arms are `frozen`, `lora-ep5`
+  and `lora-ep{latest_passing_epoch}` when that is neither 5 nor null. See `queue/README.md`.
 - Splits: `train_loo.split_indices(adata_hvg, holdout_ct, labels_key, domains_key, holdout_domains, seed=0)`.
   test = holdout ct in holdout domain(s). Fine-tune trains on `train_idx`, validates on `val_idx` — the same
   split cellina uses. Decoder trains on `train_idx ∪ val_idx` (non-holdout) and reports test on `test_idx`
@@ -87,23 +92,26 @@ def tokenize_cached(adata_terra, model_dir, tok_cache, nproc=16) -> datasets.Dat
 def model_dir() -> str   # download_pretrained(MODEL_REPO) local folder
 ```
 
-## `finetuning.py` CLI
+## `finetuning_lora.py` CLI
 ```
-python scripts/terra/finetuning.py --dataset_name crc --adata_path $DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad \
-  --holdout_celltype Fibroblast [--epochs 30 --patience 3 --batch-size 100 --seed 0 --max-cells N]
+python scripts/terra/finetuning_lora.py --dataset_name crc --adata_path .../crc_232.h5ad \
+  [--epochs 5 --lr 1e-4 --batch-size 64 --seed 0 --max-cells N --max-steps N --work-dir D]
+  [--from-run-dir DIR]     # skip training, export/embed/guard DIR's checkpoint_epoch_*.pt
 ```
-Writes `work_dir/ft_run/` (terra checkpoints, split h5ads, tokenised subsets), repacks to `work_dir/ft_bundle/`
-(copy of pretrained bundle with `model_checkpoint.pt` swapped) and `work_dir/ft_bundle/ft_summary.json`
-(val acc/loss per epoch, majority rate, wall time, epochs run, stopped_early). Skip if summary exists.
-Keep every verification from `finetune_terra.py` (load guard, strict repack load, only-block-11-changed,
-shuffled order, val acc > majority).
+Writes `{slide}/terra/lora_run/` (terra checkpoints + `ft_config.json` = the resolved config),
+`{slide}/terra/lora_ep{N}/lora_bundle` + `.../emb_lora.npz` per epoch, and
+`{slide}/terra/epoch_selection.json` (per-epoch guard stats, pass/fail per criterion,
+`final_epoch`, `latest_passing_epoch`, loss and steps per epoch). Skip if the selection exists.
+Structural checks still assert (preflight strict load, strict repack load, LoRA-only tensors changed
+in every block, off-target drift within the pretrained EMA gap); the collapse guard only records.
 
 ## `inference.py` CLI
 ```
 python scripts/terra/inference.py --dataset_name crc --adata_path ... --holdout_celltype Fibroblast \
-  --variant {ft,frozen} [--skip-eval]
+  [--eval-celltypes CT,CT,...] --variant frozen | --variant lora --epoch N [--skip-eval]
 ```
-model_name = `terra` for ft, `terra-frozen` for frozen. Outputs in `out_dir`, exactly the shapes eval_loo reads:
+model_name = `terra-frozen` or `terra-lora-ep{N}`, with no `-ho{ct}` tag: the encoder is never held
+out, only the decoder is (its own `split_indices` per scored type, in that type's `work_dir`). Outputs in `out_dir`, exactly the shapes eval_loo reads:
 - `{model_name}_recon_x.h5ad`: all holdout-ct cells (every domain), X = decoded counts from the unperturbed
   `spatial_cell_emb`, `obsm["latents"]` = spatial_cell_emb, obs/var copied from `adata_hvg[holdout ct]`
   (use `train_loo.save_recon_adata`).
@@ -124,7 +132,8 @@ vector (needed by eval_terra.py), decoder ckpt `count_decoder_{variant}.pt` + me
 
 ## `eval_terra.py` CLI
 ```
-python scripts/terra/eval_terra.py --dataset_name crc --adata_path ... --holdout_celltype Fibroblast --variant {ft,frozen}
+python scripts/terra/eval_terra.py --dataset_name crc --adata_path ... --holdout_celltype Fibroblast \
+  --variant frozen | --variant lora --epoch N [--universe terra2k --cellina-cf cellina-pert]
 ```
 Notebook §8b / `GENE_SHIFT_SPEC.md` protocol B, copied from `score_gene_shift` (notebook cell 28):
 per-gene L2-normalised token-embedding clouds (`return_token_embeddings=True`, slice `[:, :256]`), geomloss
@@ -141,5 +150,7 @@ spatial_cell_emb changed under perturbation; decoded matrix shape == (n_cells, n
 adata_hvg.var_names; eval_loo JSON written and loadable.
 
 ## Not doing (say so, don't build)
-No driver script (a bash loop in the README). No CPA/scGen-style model_class branches. No changes to the
-notebooks or to `finetune_terra.py`. No retraining of the other methods.
+No CPA/scGen-style model_class branches. No changes to the notebooks or to `finetune_terra.py`.
+No retraining of the other methods. The supervised block-11 fine-tune (`finetuning.py`, `--variant ft`)
+and the TERRA-112M switch were dropped: the final protocol is the self-supervised LoRA arm only.
+The driver is `queue/worker.sh` + `queue/launch_overnight.sh` (two GPUs, one worker each).
