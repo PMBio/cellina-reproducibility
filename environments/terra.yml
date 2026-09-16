@@ -1,0 +1,33 @@
+# Conda environment for the TERRA node-perturbation notebook
+# (notebooks/loo_benchmarks/terra/terra_node_pert.ipynb).
+#
+# TERRA (Lotfollahi lab; https://github.com/Lotfollahi-lab/terra) is a JEPA
+# spatial-transcriptomics foundation model, kept in its OWN environment: it
+# pulls transformers/peft/datasets/pyensembl and shares none of the scvi-tools
+# stack that `cellina.yml` uses.
+#
+# Create with:
+#   conda env create -f environments/terra.yml
+#
+# NOTES
+#  - torch is pinned to a +cu121 build: this box runs driver 535.216.01
+#    (CUDA 12.2) on RTX 4090s (sm_89). TERRA's own environment.yaml pins
+#    pytorch 2.0 / cuda 11.7, which predates sm_89 -- do not use it here.
+#  - No flash-attn package is needed; TERRA calls torch's native SDPA and
+#    selects the EFFICIENT/CUDNN backends itself.
+#  - `perturb` extra -> geomloss (embedding-space W2), `hub` -> huggingface_hub
+#    (download_pretrained), `notebook` -> jupyterlab/ipykernel.
+#  - decoupler is required by ../scripts/counterfactual_analysis.py, which the
+#    notebook imports for metric parity with the other LOO baselines.
+name: terra
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - torch==2.5.1+cu121
+      - "terra-st[perturb,hub,notebook]"
+      - "decoupler>=2"
+      - adjustText
