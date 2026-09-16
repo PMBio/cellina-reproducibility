@@ -1,11 +1,13 @@
 # Conda environment for cellina v1.1.1 (latest release).
 #
 # Derived from the pinned environment.yml shipped by PMBio/cellina@release/v1.1.1,
-# with three changes so it actually resolves off a clean machine:
+# with four changes so it actually resolves and imports off a clean machine:
 #   - the pinned `cellina==0.7.1` / `cellina-graph==0.0.9` pip lines are dropped;
 #     cellina is installed from the release/v1.1.1 branch instead (it is not on PyPI).
 #   - a --find-links to the pyg wheel index, which is where the
-#     torch-scatter/sparse/cluster/pyg-lib `+pt24cu121` builds are hosted.
+#     torch-scatter/sparse/cluster `+pt24cu121` builds are hosted.
+#   - pyg-lib dropped: needs GLIBC_2.29, this cluster has 2.28, and its
+#     failure mode breaks `import cellina` outright (details at the pin).
 #   - env name `cellina_edge` -> `cellina111`, to sit alongside the pinned
 #     cellina 0.7.1 env in cellina.yml without colliding.
 #
@@ -381,7 +383,14 @@ dependencies:
       - pyarrow==19.0.0
       - pybiomart==0.2.0
       - pyct==0.5.0
-      - pyg-lib==0.4.0+pt24cu121
+      # pyg-lib is DROPPED on purpose: its wheel needs GLIBC_2.29 and this
+      # cluster is glibc 2.28, so libpyg.so fails to dlopen. That is not a
+      # silent degradation -- torch_sparse/typing.py guards `import pyg_lib`
+      # with `except ImportError`, which does NOT catch the OSError, so a
+      # present-but-unloadable pyg-lib breaks `import torch_sparse` and
+      # therefore `import cellina`. cellina does not require it (see its
+      # pyproject: torch-geometric/-sparse/-scatter only); without it
+      # torch_sparse takes its documented fallback path.
       - pynndescent==0.5.13
       - pyogrio==0.10.0
       - pyparsing==3.1.4
