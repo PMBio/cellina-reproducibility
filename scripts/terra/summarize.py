@@ -78,6 +78,9 @@ def uni2(f):
         print(f"WARN: missing {f.name}")
         return None
     j = json.loads(f.read_text())
+    if "skipped" in j:
+        print(f"SKIP: {f.name}: {j['skipped']}")
+        return None
     return next((v for k, v in j.items()
                  if isinstance(v, dict) and k.strip().startswith("(ii)")), None)
 

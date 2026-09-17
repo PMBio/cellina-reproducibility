@@ -1,5 +1,8 @@
 # TERRA benchmark queue
 
+`worker.sh` is the shared step chain (fine-tune -> arms -> decoder path -> shift path -> summary)
+for one GPU. On the cluster, submit through `../slurm/README.md` instead.
+
 6 slides (`crc_120 crc_210 crc_221 crc_231 crc_232 crc_242`), holdout domain `CRC`.
 The scored `(sid, cell type)` pairs are **derived**, never hardcoded: they are the
 `model_name == "cellina-pert"` rows of `origin/results:results/loo_cellina_crc_DEG_50_pert_v2.csv`
@@ -8,18 +11,24 @@ The scored `(sid, cell type)` pairs are **derived**, never hardcoded: they are t
 ## Recipe
 
 **Fine-tune** (`finetuning_lora.py`, once per slide, ALL cells, no labels, no holdout):
-TERRA-96M, self-supervised I-JEPA LoRA — r16 / alpha 256 / dropout 0.1 on
+TERRA-96M (`TERRA_MODEL` switches to 112M, see `../PIPELINE_SPEC.md`), self-supervised I-JEPA LoRA — r16 / alpha 256 / dropout 0.1 on
 `qkv, proj, fc1, fc2`, wd 0.04→0.4, EMA 0.9995→1, smooth_l1, clip 2, bf16,
-warmup 0.1 epoch, **lr 1e-4** (the tutorial's 1e-3 collapses the encoder), batch 64,
+warmup 0.1 epoch, **lr 1e-4** (the tutorial's 1e-3 collapses the encoder), **batch 128**,
 **5 epochs**, `save_every 1`.  The resolved config lands in
 `{slide}/terra/lora_run/ft_config.json`.
 
+Batch 128 for **all six slides**.  The recipe was validated at batch 64 on 24 GB cards; lr and
+epochs are **not** rescaled, so at 128 the run takes half the optimizer steps and the EMA target
+encoder moves about half as far — a milder fine-tune, but identical across slides.  Old crc_232
+numbers (batch 64, 1000-cell guard) are superseded: crc_232 is retrained from scratch like every
+other slide.
+
 Every epoch checkpoint is then repacked (`prepare_finetuned_model`) into
 `{slide}/terra/lora_ep{N}/lora_bundle`, used to embed a fixed 20,000-cell subsample
-(`--guard-cells`, seed 0) and scored by the collapse guard. Full-slide embeddings of the
-selected arms are computed and cached by `inference.py` (`{slide}/terra/lora_ep{N}/emb_lora.npz`).
-(crc_232 was guarded before this change on its full-slide embeddings with a 1000-cell guard set.)
-Results go to `{slide}/terra/epoch_selection.json`; **nothing aborts on a failed guard**.
+(`--guard-cells`, seed 0) and scored by the collapse guard — the same guard for all six slides.
+Full-slide embeddings of the selected arms are computed and cached by `inference.py`
+(`{slide}/terra/lora_ep{N}/emb_lora.npz`).  Results go to
+`{slide}/terra/epoch_selection.json`; **nothing aborts on a failed guard**.
 
 Guard criteria, per embedding (`cell_emb`, `spatial_cell_emb`, `neighborhood_emb`), on a
 fixed 20,000-cell subsample against the frozen encoder: effective rank > 0.5x frozen,
@@ -45,34 +54,34 @@ the `encoder_exposure` column.
 
 **Shift path** (`eval_terra.py`): TERRA-native gene-embedding W2 shift, no decoder,
 universe = terra's own 2000 harmonised HVGs (`--universe terra2k`, favourable to TERRA),
-`--cellina-cf cellina-pert` for the reference arm. Writes
+`--cellina-cf cellina-pert` for the reference arm, precision@50 (`--k 50`; the TERRA paper uses 100).
+A `(slide, cell type)` whose universe (ii) has fewer than 1000 scorable HVGs (`--min-genes`) is skipped
+before any GPU work; its JSON holds only a `skipped` reason and `summarize.py` reports it as such.
+`make_terra2k.py` must have been run once for the slide (CPU) first. Writes
 `correlations/{sid}_terra-…-native-terra2k_{ct}_CRC.json`.
 
 **Summary** (`summarize.py`): `results/terra_crc_decoder_DEG_50.csv` and
 `results/terra_crc_shift_terra2k.csv`.
 
+Embeddings are computed with `batch_size=128` (terra's default; inference only, no protocol
+content).
+
 ## Running
 
 ```bash
-scripts/terra/queue/launch_overnight.sh      # splits the 6 slides over GPU 0/1 and nohups two workers
+scripts/terra/queue/worker.sh auto crc_221 crc_231   # inside a Slurm job: use the allocated GPU
+scripts/terra/queue/worker.sh 0 crc_221              # bare machine: pin physical GPU 0
 ```
 
-The split is by `n_obs` of the raw h5ad (read with h5py, X untouched), greedy longest-first;
-`crc_232` counts at 1/3 because it skips the fine-tune (its checkpoints already exist under
-`crc_232/terra_lora5ep/lora_run/run`, reused via `--from-run-dir`).
-
-One slide on one GPU:
-
-```bash
-scripts/terra/queue/worker.sh 0 crc_221
-```
+The first argument is `auto` or a physical GPU index. One slide per GPU at a time; terra's
+fine-tune path has no DDP, so never hand a worker several GPUs.
 
 One step by hand (everything is re-entrant — existing bundles, embeddings, decoder
 checkpoints and `epoch_selection.json` are reused, delete the artefact to force a redo):
 
 ```bash
-export DATA_ROOT=/data/ddimitrov/data CUDA_VISIBLE_DEVICES=0
-PY=/data/ddimitrov/software/miniforge3/envs/terra/bin/python
+export DATA_ROOT=$PWD/data HF_HOME=$PWD/data/hf HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=0
+PY=/g/stegle/ddimitro/miniforge3/envs/terra/bin/python
 A=$DATA_ROOT/datasets/crc/raw_zenodo/crc_221.h5ad
 CT=Endothelial,Epithelial,Fibroblast,Myeloid,T_cell
 $PY scripts/terra/finetuning_lora.py --dataset_name crc --adata_path $A
@@ -81,6 +90,6 @@ $PY scripts/terra/eval_terra.py --dataset_name crc --adata_path $A --holdout_cel
 $PY scripts/terra/summarize.py
 ```
 
-Logs: `scripts/terra/queue/logs/{sid}_{step}.log`, with `START`/`END rc=`/`ABORT` lines in
-`logs/{sid}_status.txt`. A failed step aborts that slide only; the worker continues with the
+Logs (when `worker.sh` is used): `scripts/terra/queue/logs/{sid}_{step}.log`, with
+`START`/`END rc=`/`ABORT` lines in `logs/{sid}_status.txt`. A failed step aborts that slide only; the worker continues with the
 next one and still writes the summary at the end.

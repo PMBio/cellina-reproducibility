@@ -21,7 +21,11 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 PX_TO_UM = {"crc": 0.12028, "merfish": 0.109}
-MODEL_REPO = "lotfollahi-lab/TERRA-96M"
+# TERRA-96M (default): trained on a 96M-cell subset of HST-Corpus-112M, the rest held out for
+# benchmarking. TERRA_MODEL=lotfollahi-lab/TERRA-112M switches to the full-corpus model (its token
+# dictionary has `spv_cosmx` / `spv_colon`, so it may have seen these slides); at batch 128 it
+# needs > 44 GB, i.e. an 80 GB card, or batch 64 on an L40s.  Decision 2026-09-16: 96M for now.
+MODEL_REPO = os.environ.get("TERRA_MODEL", "lotfollahi-lab/TERRA-96M")
 N_PERT_GENES = 200
 
 DATA_ROOT = os.environ.get("DATA_ROOT", ".")
@@ -199,7 +203,7 @@ def tokenize_cached(adata_terra, model_dir, tok_cache, nproc=16):
 
 
 EMB_KEYS = ["cell_emb", "spatial_cell_emb", "neighborhood_emb"]
-EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
+EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=128,
                   include_spatial_cell_emb=True, return_token_embeddings=False,
                   ignore_spc_tokens=True, num_workers=8)
 
@@ -297,25 +301,35 @@ def position_codes(tok_subset, coords, focal_rows, ct_code, n_pos):
     return np.repeat(ct_code[rows], n_pos // n_seg, axis=1)
 
 
-def shift_neighbourhood(batch, idx, delta, codes, seq_len_cell):
-    """Add each neighbour's own log-space logFC to its tokens.  Cell block untouched."""
+def shift_neighbourhood(batch, idx, delta, codes, seq_len_cell, include_cell=False):
+    """Add each neighbour's own log-space logFC to its tokens.
+
+    `include_cell=False` (the default, and what the benchmark asks) leaves the focal cell's
+    own block untouched, so the perturbation can only reach the cell's tokens through
+    neighbourhood attention.  `include_cell=True` shifts block 0 as well, which is what
+    TERRA's own perturbation notebooks do (`perturbation_target=["cell", "neighborhood"]`);
+    `codes` already carries the focal cell's own type for block 0, so it receives that type's
+    logFC -- for a control cell of the scored type, the leak-free global row.
+    """
     tokens = np.asarray(batch["gene_tokens"])
     expr = np.asarray(batch["gene_expr"], dtype=np.float64)
-    nb_tok, nb_expr = tokens[:, seq_len_cell:], expr[:, seq_len_cell:]
-    shift = delta[codes[idx][:, seq_len_cell:], nb_tok]
-    shift[nb_expr <= 0] = 0.0        # undetected / padded genes are not perturbable
-    expr[:, seq_len_cell:] = np.clip(nb_expr + shift, 0.0, None)
+    lo = 0 if include_cell else seq_len_cell
+    sub_tok, sub_expr = tokens[:, lo:], expr[:, lo:]
+    shift = delta[codes[idx][:, lo:], sub_tok]
+    shift[sub_expr <= 0] = 0.0       # undetected / padded genes are not perturbable
+    expr[:, lo:] = np.clip(sub_expr + shift, 0.0, None)
     batch["gene_tokens"], batch["gene_expr"] = tokens, expr
     return batch
 
 
-def map_perturbation(ds, delta, codes, seq_len_cell):
+def map_perturbation(ds, delta, codes, seq_len_cell, include_cell=False):
     """Map with the torch format OFF -- what terra's own perturb_dataset does; restore it."""
     fmt = ds.format
     out = ds.with_format(None).map(
         shift_neighbourhood, batched=True, batch_size=256, with_indices=True,
         keep_in_memory=True, load_from_cache_file=False,
-        fn_kwargs=dict(delta=delta, codes=codes, seq_len_cell=seq_len_cell))
+        fn_kwargs=dict(delta=delta, codes=codes, seq_len_cell=seq_len_cell,
+                       include_cell=include_cell))
     out.set_format(type=fmt["type"], columns=fmt["columns"],
                    output_all_columns=fmt["output_all_columns"])
     return out

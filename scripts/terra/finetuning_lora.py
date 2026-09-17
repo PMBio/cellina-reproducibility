@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Self-supervised (I-JEPA) LoRA fine-tune of TERRA-96M on one whole slide.
+"""Self-supervised (I-JEPA) LoRA fine-tune of TERRA (common.MODEL_REPO, default TERRA-96M) on one whole slide.
 
 TERRA's own Xenium fine-tuning recipe, verbatim, run on ALL cells of one CosMx CRC
 slide (no holdout, no labels).  Every epoch checkpoint is repacked into an embeddable
@@ -10,9 +10,11 @@ Nothing aborts on a failed guard -- the queue picks arms from that JSON.
 
   python scripts/terra/finetuning_lora.py --dataset_name crc \
     --adata_path $DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad
-  # crc_232: reuse the checkpoints already trained, export/embed/guard only
+  # re-entrancy: reuse checkpoints already trained, export/embed/guard only
   python scripts/terra/finetuning_lora.py --dataset_name crc --adata_path .../crc_232.h5ad \
-    --from-run-dir $DATA_ROOT/datasets/crc/crc_232/terra_lora5ep/lora_run/run
+    --from-run-dir $DATA_ROOT/datasets/crc/crc_232/terra/lora_run/run
+
+Batch size: 128 (cluster default, one >=48 GB GPU per job).
 """
 import argparse
 import json
@@ -31,7 +33,7 @@ p.add_argument("--lr", type=float, default=1e-4,
                help="peak lr; start/final = lr/10. The tutorial's 1e-3 x LoRA scale alpha/r=16 "
                     "collapsed the encoder on crc_232 within ~75 steps")
 p.add_argument("--max-steps", type=int, default=None, help="cap cells to max_steps*batch_size (1 epoch)")
-p.add_argument("--batch-size", type=int, default=64)
+p.add_argument("--batch-size", type=int, default=128)
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--guard-cells", type=int, default=20000, help="cells embedded per epoch for the collapse guard")
 p.add_argument("--max-cells", type=int, default=None, help="subsample the slide (smoke tests only)")
@@ -149,6 +151,22 @@ def _patched_init_model(**kw):
 
 
 fss.init_model = _patched_init_model
+
+# fss.init_cell_dataset also omits `pad_special_tokens=True`, which embed_dataset always sets:
+# with special tokens (112M: ["batch"]) the loader would otherwise look up a per-cell
+# `batch_value` -- a corpus batch identity (`spv_{dataset_id}_{batch}`) that new slides cannot
+# have.  Padding the slot is exactly what inference does, so train and embed see the same input.
+_orig_init_cell_dataset = fss.init_cell_dataset
+
+
+def _patched_init_cell_dataset(**kw):
+    kw.setdefault("pad_special_tokens", True)
+    kw.setdefault("truncate_neighbors", CFG["data"].get("truncate_neighbors", False))
+    kw.setdefault("tokenized_seq_len_cell", CFG["data"].get("tokenized_seq_len_cell", None))
+    return _orig_init_cell_dataset(**kw)
+
+
+fss.init_cell_dataset = _patched_init_cell_dataset
 
 PRETRAINED = torch.load(MODEL_DIR / "model_checkpoint.pt", map_location="cpu")["target_encoder"]
 PRETRAINED = {k.replace("module.", ""): v for k, v in PRETRAINED.items()}
@@ -351,6 +369,7 @@ SELECTION.write_text(json.dumps({
     "criteria": CRITERIA, "guard_cells": int(len(GUARD_ROWS)), "n_cells": N_CELLS, "steps_per_epoch": steps_per_epoch,
     "loss_per_epoch": loss_per_epoch, "wall_seconds": wall, "peak_gpu_gib": peak_gib,
     "lr": A.lr, "batch_size": A.batch_size, "epochs": epochs,
+    "model_repo": common.MODEL_REPO, "model_dir": str(MODEL_DIR),
 }, indent=2))
 print(json.dumps({"final_epoch": FINAL_EPOCH,
                   "latest_passing_epoch": (max(passing) if passing else None),

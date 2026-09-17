@@ -20,6 +20,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")   # before torch; embed_datas
 
 import argparse
 import json
+import shutil
 import pickle
 import sys
 import time
@@ -45,7 +46,7 @@ UNI_HVG = "(ii) n benchmark HVGs"   # = the terra2k genes when --universe terra2
 SEQ_LEN_CELL = 256      # model_config['data']['seq_len_cell']
 BLUR = 0.01             # terra infer_token_distance default
 N_RANDOM_SETS = 10      # TERRA paper protocol
-EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
+EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=128,
                   include_spatial_cell_emb=True, return_token_embeddings=True,
                   ignore_spc_tokens=True, num_workers=8)
 
@@ -64,8 +65,40 @@ def cache_suffix(d, scored_ct):
             ("" if d.universe == "benchmark" else f"_{d.universe}"))
 
 
-def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
-    """ctrl/pert tokenised sets + delta, from inference.py's caches or rebuilt identically."""
+def _save_atomic(ds, path):
+    """save_to_disk into a private temp dir, then rename into place.
+
+    The arms of one slide/cell type can run as parallel jobs (submit_shift_cellpert.sh runs one
+    per arm) and build byte-identical model-independent caches, so a plain save_to_disk would
+    have several processes writing the same directory at once.  First writer wins; the others
+    keep the finished copy and discard theirs.
+    """
+    if path.exists():
+        print(f"{path} already written by another job; keeping it")
+        return
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    shutil.rmtree(tmp, ignore_errors=True)
+    ds.save_to_disk(str(tmp))
+    try:
+        os.rename(tmp, path)            # atomic; ENOTEMPTY if another job got there first
+        print(f"wrote {path}")
+    except OSError:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print(f"{path} appeared while writing; kept the other job's copy")
+
+
+def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None, max_ctrl_cells=None,
+                 include_cell=False):
+    """ctrl/pert tokenised sets + delta, from inference.py's caches or rebuilt identically.
+
+    max_ctrl_cells: seeded random subsample of the control cells (same subsample for every arm of
+    a slide, so the paired clouds stay comparable across frozen/lora). Bounds GPU memory (two
+    n*256 x 384 clouds) and the per-gene Sinkhorn cost, which is quadratic in n. Only Epithelial
+    on the large slides exceeds it. The ground-truth logFC still uses ALL control cells.
+
+    include_cell: also shift the focal cell's own token block, as TERRA's notebooks do. The
+    perturbed sets get their own `_cellpert` caches so the two conditions never mix; the
+    control set, the logFC and the random-gene draws are identical either way."""
     a = d.adata_terra
     args, work = d.args, Path(d.paths["work_dir"])
     work.mkdir(parents=True, exist_ok=True)
@@ -81,7 +114,9 @@ def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
         assert "logfc" not in logfc_df.columns, f"{logfc_csv} predates the per-cell-type delta"
     else:
         logfc_df = common.perturbation_logfc(d.adata_hvg, args, hd, scored_ct)
-        logfc_df.to_csv(logfc_csv)
+        tmp = logfc_csv.with_suffix(f".tmp{os.getpid()}")
+        logfc_df.to_csv(tmp)
+        os.replace(tmp, logfc_csv)      # deterministic content; last writer wins harmlessly
     delta, ct_code = common.token_delta(logfc_df, a, model_dir_path, args["labels_key"])
     n_mapped = int((delta != 0).sum())
 
@@ -93,25 +128,36 @@ def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
     ctrl_ids = a.obs.loc[is_ctrl, "cell_id"].astype(str).tolist()
     if max_cells:
         ctrl_ids = ctrl_ids[:max_cells]
+    n_ctrl_all = len(ctrl_ids)
+    if max_ctrl_cells and len(ctrl_ids) > max_ctrl_cells:
+        keep = np.sort(np.random.default_rng(SEED).choice(len(ctrl_ids), max_ctrl_cells, replace=False))
+        ctrl_ids = [ctrl_ids[i] for i in keep]
+        print(f"control cells capped: {max_ctrl_cells:,} of {n_ctrl_all:,} (seed {SEED})")
     ctrl_rows = [pos_of[c] for c in ctrl_ids]
 
-    ctrl_p, pert_p = work / f"ctrl_tok_{hd}{suf}", work / f"pert_tok_{hd}{suf}"
+    tok_suf = suf + ("_cellpert" if include_cell else "")
+    ctrl_p, pert_p = work / f"ctrl_tok_{hd}{tok_suf}", work / f"pert_tok_{hd}{tok_suf}"
+    ctrl_tok = pert_tok = None
     if ctrl_p.exists() and pert_p.exists() and max_cells is None:
         ctrl_tok, pert_tok = load_from_disk(str(ctrl_p)), load_from_disk(str(pert_p))
-        print(f"loaded cached {ctrl_p} / {pert_p}")
-    else:
+        if [str(c) for c in ctrl_tok.with_format(None)["cell_id"]] == ctrl_ids:
+            print(f"loaded cached {ctrl_p} / {pert_p}")
+        else:                       # e.g. cache written before the control-cell cap
+            print(f"cached {ctrl_p} has a different cell set ({len(ctrl_tok):,}); rebuilding")
+            ctrl_tok = pert_tok = None
+            shutil.rmtree(ctrl_p); shutil.rmtree(pert_p)
+    if ctrl_tok is None:
         ctrl_tok = tok.select(ctrl_rows)
-        pert_tok = None
     assert [str(c) for c in ctrl_tok.with_format(None)["cell_id"]] == ctrl_ids
     n_pos = len(ctrl_tok.with_format(None)[0]["gene_tokens"])
     codes = common.position_codes(ctrl_tok, a.obsm["spatial"], ctrl_rows, ct_code, n_pos)
     if pert_tok is None:
-        pert_tok = common.map_perturbation(ctrl_tok, delta, codes, SEQ_LEN_CELL)
+        pert_tok = common.map_perturbation(ctrl_tok, delta, codes, SEQ_LEN_CELL,
+                                           include_cell=include_cell)
         if max_cells is None:
-            ctrl_tok.save_to_disk(str(ctrl_p))
-            pert_tok.save_to_disk(str(pert_p))
-            print(f"wrote {ctrl_p} / {pert_p}")
-    print(f"control cells: {len(ctrl_tok):,} | target ({hd}) cells: {int(is_tgt.sum()):,}")
+            _save_atomic(ctrl_tok, ctrl_p)
+            _save_atomic(pert_tok, pert_p)
+    print(f"control cells: {len(ctrl_tok):,} (of {n_ctrl_all:,}) | target ({hd}) cells: {int(is_tgt.sum()):,}")
 
     # Random-gene controls (notebook cell 26): same logFC values, random neighbour tokens.
     nb_pool = np.unique(np.asarray(ctrl_tok.with_format(None)["gene_tokens"])[:, SEQ_LEN_CELL:])
@@ -124,7 +170,8 @@ def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
             vals = row[row != 0]
             if len(vals):
                 dr[r, rng.choice(nb_pool, len(vals), replace=False)] = vals
-        rand_toks.append(common.map_perturbation(ctrl_tok, dr, codes, SEQ_LEN_CELL))
+        rand_toks.append(common.map_perturbation(ctrl_tok, dr, codes, SEQ_LEN_CELL,
+                                                 include_cell=include_cell))
     print(f"{len(rand_toks)} random-gene control sets: {n_mapped} tokens each, "
           f"drawn from the {len(nb_pool)} tokens present in the control neighbourhoods")
 
@@ -137,20 +184,34 @@ def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
     return ctrl_tok, pert_tok, rand_toks, delta, tok2sym, gt_lfc, n_mapped
 
 
+EMB_CHUNK = 2000        # cells per embed_dataset call; token_emb is (n, 2816, 384) fp32 = 4.3 MB/cell on host
+
+
 def _token_cloud(model_folder, ds):
     """The cell's own token embeddings under FULL neighbourhood attention, flattened to
-    (n_cells * 256, 384) and L2-normalised, on the GPU."""
-    out = embed_dataset(dataset=ds, **dict(EMB_KWARGS, model_folder_path=str(model_folder)))
-    # token_emb IS n_emb: all 2816 positions (96M has special_tokens: []), so position i is
-    # gene_tokens[i]. ~12.5 GB fp32 for 2,881 cells -- slice to 1.1 GB and drop it.
-    emb = torch.from_numpy(np.ascontiguousarray(out["token_emb"][:, :SEQ_LEN_CELL]))
-    del out
-    emb = emb.reshape(-1, emb.shape[-1]).to("cuda:0", torch.float32)
+    (n_cells * 256, 384) and L2-normalised, on the GPU.
+
+    Embedded in chunks of EMB_CHUNK cells: embed_dataset(return_token_embeddings=True) keeps the
+    full (n, 2816, 384) fp32 tensor on the host and torch.cat's it, i.e. ~8.6 GB per 1,000 cells
+    twice over. 24,934 control cells (crc_231 Epithelial) exceeded a 200 GB job on 2026-09-16.
+    Only positions [:256] (the cell's own tokens) are kept, on the GPU: 0.4 GB per 1,000 cells."""
+    # token_emb IS n_emb with special tokens already dropped by embed_dataset (112M prepends one
+    # `batch` token; 96M none), so all 2816 positions remain and position i is gene_tokens[i].
+    parts = []
+    for i in range(0, len(ds), EMB_CHUNK):
+        out = embed_dataset(dataset=ds.select(range(i, min(i + EMB_CHUNK, len(ds)))),
+                            **dict(EMB_KWARGS, model_folder_path=str(model_folder)))
+        parts.append(torch.from_numpy(np.ascontiguousarray(out["token_emb"][:, :SEQ_LEN_CELL]))
+                     .to("cuda:0", torch.float32))
+        del out
+    emb = torch.cat(parts, 0)
+    del parts
+    emb = emb.reshape(-1, emb.shape[-1])
     return emb / (emb.norm(dim=1, keepdim=True) + 1e-12)      # _l2_normalize_rows
 
 
 def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym, gt_lfc,
-                     hvg_set, min_cells, k):
+                     hvg_set, min_cells, k, min_genes=0):
     t0 = time.time()
     tokens = np.asarray(ctrl_tok.with_format(None)["gene_tokens"])[:, :SEQ_LEN_CELL]
     assert (np.asarray(pert_tok.with_format(None)["gene_tokens"])[:, :SEQ_LEN_CELL]
@@ -163,6 +224,11 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     n_dropped = len(cand) - len(utok)
     genes = np.array([tok2sym[t] for t in utok])
     truth = gt_lfc.loc[genes].abs().to_numpy()
+    in_hvg = np.isin(genes, list(hvg_set))
+    if in_hvg.sum() < min_genes:          # before any GPU work
+        print(f"SKIP gene shift: universe (ii) has {int(in_hvg.sum())} < {min_genes} scorable HVGs "
+              f"({len(utok)} token-covered genes in >= {min_cells} control cells)", flush=True)
+        return None, None, int(in_hvg.sum())
 
     # Per-gene occurrence positions, without materialising an (n_genes, n_cells) mask.
     flat = tokens.ravel()
@@ -190,7 +256,6 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     torch.cuda.empty_cache()
 
     is_pert = np.isin(utok, np.flatnonzero((delta != 0).any(axis=0)))
-    in_hvg = np.isin(genes, list(hvg_set))
     uni = {"(i) all token-covered": np.ones(len(utok), bool),
            UNI_HVG: in_hvg,
            "(iii) minus perturbed genes": ~is_pert}
@@ -283,8 +348,21 @@ def main():
     p.add_argument("--variant", required=True, choices=["frozen", "lora"])
     p.add_argument("--epoch", type=int, default=None, help="--variant lora: LoRA bundle epoch")
     p.add_argument("--min-cells", type=int, default=20)
-    p.add_argument("--k", type=int, default=100)         # TERRA paper protocol
+    p.add_argument("--k", type=int, default=50)          # TERRA paper uses top-100; 50 chosen 2026-09-16
+    p.add_argument("--min-genes", type=int, default=1000,
+                   help="skip a (slide, cell type) whose universe (ii) has fewer scorable HVGs; "
+                        "a JSON with `skipped` is still written so summarize.py can tell it apart")
     p.add_argument("--max-cells", type=int, default=None, help="smoke test: first N control cells")
+    p.add_argument("--max-ctrl-cells", type=int, default=15000,
+                   help="seeded random cap on control cells per (type, domain) for the token clouds "
+                        "(GPU memory and Sinkhorn cost are quadratic in n); 0 = no cap. 15k keeps every "
+                        "crc_232 run (max 12,645) unchanged.")
+    p.add_argument("--perturb-cell", action="store_true",
+                   help="also shift the focal cell's own token block, not just the neighbourhood. "
+                        "Matches TERRA's notebooks (perturbation_target=['cell','neighborhood']); "
+                        "the default neighbourhood-only setting is the benchmark question. Writes "
+                        "to `-cellpert` result files and `_cellpert` token caches, so both "
+                        "conditions can coexist.")
     p.add_argument("--eval-celltypes", default=None,
                    help="comma-separated cell types to score (default: the holdout only)")
     p.add_argument("--universe", default="benchmark", choices=["benchmark", "terra2k"],
@@ -297,7 +375,7 @@ def main():
     torch.manual_seed(SEED)
     assert (a.epoch is not None) == (a.variant == "lora"), "--epoch is required iff --variant lora"
     model_name = "terra-frozen" if a.variant == "frozen" else f"terra-lora-ep{a.epoch}"
-    md = common.model_dir()                      # pretrained TERRA-96M bundle
+    md = common.model_dir()                      # pretrained TERRA bundle (common.MODEL_REPO)
     d = common.load_dataset(a.dataset_name, a.adata_path, a.holdout_celltype, md, universe=a.universe)
     # lora: one slide-level bundle (self-sup on all cells), not a per-holdout fine-tune.
     encoder = md if a.variant == "frozen" else (
@@ -307,14 +385,29 @@ def main():
     hvg_set = set(d.adata_hvg.var_names.astype(str))
     corr_dir = Path(d.paths["corr_dir"])
     corr_dir.mkdir(parents=True, exist_ok=True)
-    uni_suf = "" if a.universe == "benchmark" else f"-{a.universe}"
+    uni_suf = ("" if a.universe == "benchmark" else f"-{a.universe}") + \
+              ("-cellpert" if a.perturb_cell else "")
+
+    tgt = ["cell", "neighborhood"] if a.perturb_cell else ["neighborhood"]
+    print(f"perturbation target: {tgt}")
 
     for ct in (a.eval_celltypes.split(",") if a.eval_celltypes else [a.holdout_celltype]):
         for hd in d.args["holdout_domains"]:
-            inputs = build_inputs(d, tok, md, hd, ct, max_cells=a.max_cells)
+            inputs = build_inputs(d, tok, md, hd, ct, max_cells=a.max_cells,
+                                  max_ctrl_cells=a.max_ctrl_cells or None,
+                                  include_cell=a.perturb_cell)
             n_mapped = inputs[-1]
             res, per_gene, table = score_gene_shift(encoder, *inputs[:-1], hvg_set,
-                                                    a.min_cells, a.k)
+                                                    a.min_cells, a.k, a.min_genes)
+            out = corr_dir / f"{d.sid}_{model_name}-native{uni_suf}_{ct}_{hd}.json"
+            if res is None:
+                out.write_text(json.dumps(dict(
+                    skipped=f"universe (ii) has {table} < {a.min_genes} scorable HVGs",
+                    n_genes_universe_ii=table, min_genes=a.min_genes, variant=a.variant, k=a.k,
+                    min_cells=a.min_cells, n_perturbed_mapped=n_mapped,
+                    perturbation_target=tgt), indent=2))
+                print(f"wrote {out} (skipped)")
+                continue
 
             if a.cellina_cf:
                 m = per_gene["in_hvg"].to_numpy()
@@ -334,12 +427,13 @@ def main():
                         per_gene.loc[m, f"{arm}_abs_log2fc"] = v
             print(table.round(4).to_string(index=False))
 
-            csv = Path(d.paths["work_dir"]) / f"gene_shift_{a.variant}_{hd}{cache_suffix(d, ct)}.csv"
+            csv = (Path(d.paths["work_dir"]) / f"gene_shift_{a.variant}_{hd}"
+                   f"{cache_suffix(d, ct)}{'_cellpert' if a.perturb_cell else ''}.csv")
             per_gene.to_csv(csv, index=False)
-            out = corr_dir / f"{d.sid}_{model_name}-native{uni_suf}_{ct}_{hd}.json"
             out.write_text(json.dumps(
                 dict(res, variant=a.variant, k=a.k, n_random_sets=N_RANDOM_SETS,
-                     min_cells=a.min_cells, n_perturbed_mapped=n_mapped), indent=2))
+                     min_cells=a.min_cells, n_perturbed_mapped=n_mapped,
+                     perturbation_target=tgt), indent=2))
             print(f"wrote {out}\nwrote {csv}")
 
 

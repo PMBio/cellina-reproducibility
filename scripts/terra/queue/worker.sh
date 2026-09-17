@@ -1,14 +1,16 @@
 #!/bin/bash
 # One GPU, a list of slides: fine-tune -> pick arms -> decoder path -> shift path.
 # A failing step aborts that SLIDE only; the worker moves on to the next one.
-#   scripts/terra/queue/worker.sh 0 crc_120 crc_221
+#   scripts/terra/queue/worker.sh auto crc_120 crc_221   # inside a Slurm job: use the allocated GPU
+#   scripts/terra/queue/worker.sh 0 crc_120              # bare machine: pin physical GPU 0
 set -u
 GPU=$1; shift
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-LOG=$REPO/scripts/terra/queue/logs
-PY=${PY:-/data/ddimitrov/software/miniforge3/envs/terra/bin/python}
-export DATA_ROOT=${DATA_ROOT:-/data/ddimitrov/data}
-export CUDA_VISIBLE_DEVICES=$GPU
+LOG=${LOG:-$REPO/scripts/terra/queue/logs}
+PY=${PY:-/g/stegle/ddimitro/miniforge3/envs/terra/bin/python}
+export DATA_ROOT=${DATA_ROOT:-$REPO/data}
+export HF_HOME=${HF_HOME:-$DATA_ROOT/hf} HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1} TQDM_DISABLE=1
+[ "$GPU" != auto ] && export CUDA_VISIBLE_DEVICES=$GPU
 cd "$REPO"
 mkdir -p "$LOG"
 
@@ -38,10 +40,8 @@ d=s.cellina_df();print(','.join(d[d.sid=='$sid'].holdout_celltype))") || return 
     arms=frozen
   else
     # re-entrant: a run dir with all 5 checkpoints is reused (export/embed/guard only, no retraining).
-    # crc_232 was trained before the queue existed and keeps its own path.
     local run=$DATA_ROOT/datasets/crc/$sid/terra/lora_run/run
-    [ "$sid" = crc_232 ] && run=$DATA_ROOT/datasets/crc/crc_232/terra_lora5ep/lora_run/run
-    local ftargs=(${FT_ARGS:-})        # e.g. FT_ARGS="--batch-size 32" for slides that OOM at 64
+    local ftargs=(${FT_ARGS:-})        # extra finetuning_lora.py flags, e.g. FT_ARGS="--batch-size 64"
     [ -f "$run/checkpoint_epoch_5.pt" ] && ftargs+=(--from-run-dir "$run")
     step "$sid" ft $PY scripts/terra/finetuning_lora.py --dataset_name crc --adata_path "$a" \
       ${ftargs[@]+"${ftargs[@]}"} || return 1
@@ -61,17 +61,6 @@ print('\n'.join(('frozen' if e is None else f'lora {e}') for _,e,_ in s.arms('$D
       --universe terra2k --cellina-cf cellina-pert || return 1
   done <<< "$arms"
   echo "SLIDE DONE $(date)" >> "$LOG/${sid}_status.txt"
-  # /data is full: the scored h5ads and the tokenizer cache are the two big regenerable artefacts.
-  # PRUNE=0 keeps them (needed to re-score, e.g. nb_deviance, without re-running inference).
-  local d=$DATA_ROOT/datasets/crc/$sid
-  if [ "${PRUNE_TOK:-0}" = 1 ]; then    # regenerable from the raw h5ad, 18-27 GB per slide
-    rm -rf $d/terra_tok $d/terra_tok_terra2k
-    echo "PRUNED tok $(date) avail=$(df --output=avail -BG /data | tail -1)" >> "$LOG/${sid}_status.txt"
-  fi
-  if [ "${PRUNE_H5AD:-0}" = 1 ]; then   # only if disk forces it: re-scoring then needs a new inference run
-    rm -f $d/*/terra-*_recon_x.h5ad $d/*/terra-*_counterfactual_x_*.h5ad
-    echo "PRUNED h5ads $(date) avail=$(df --output=avail -BG /data | tail -1)" >> "$LOG/${sid}_status.txt"
-  fi
 }
 
 for sid in "$@"; do

@@ -1,13 +1,13 @@
 # TERRA on the LOO benchmark
 
-Five scripts (spec: `PIPELINE_SPEC.md`; protocol + how to run the whole thing:
-`queue/README.md`), all run from the repo root:
+Five scripts (spec: `PIPELINE_SPEC.md`; protocol + step chain: `queue/README.md`; running on
+the EMBL Slurm cluster: `slurm/README.md`), all run from the repo root:
 
 - `common.py` — benchmark preprocessing (`train_loo.preprocess_*` + `split_indices`) plus a
   row-identical TERRA-harmonised all-genes twin, tokenisation + embedding caches, path layout.
   Not a CLI.
-- `finetuning_lora.py` — self-supervised (I-JEPA) LoRA fine-tune of TERRA-96M on **all** cells of
-  one slide, 5 epochs, lr 1e-4, batch 64. Exports every epoch checkpoint to
+- `finetuning_lora.py` — self-supervised (I-JEPA) LoRA fine-tune of TERRA-96M (`TERRA_MODEL` switches to 112M) on **all** cells of
+  one slide, 5 epochs, lr 1e-4, batch 128. Exports every epoch checkpoint to
   `{slide}/terra/lora_ep{N}/lora_bundle`, embeds all cells into `.../lora_ep{N}/emb_lora.npz`,
   runs the collapse guard and writes `{slide}/terra/epoch_selection.json`.
 - `inference.py` — embed → count decoder (`terra.training.decode`, gene list = the 2000 benchmark
@@ -19,16 +19,20 @@ Five scripts (spec: `PIPELINE_SPEC.md`; protocol + how to run the whole thing:
   `results/terra_crc_shift_terra2k.csv`.
 - `make_terra2k.py` — builds the shift path's `{sid}_terra2k.h5ad` (terra's own harmonised HVGs).
 
-Env: `/data/ddimitrov/software/miniforge3/envs/terra/bin/python` (has terra + everything `eval_loo.py`
+Env: `/g/stegle/ddimitro/miniforge3/envs/terra/bin/python` (has terra + everything `eval_loo.py`
 imports; `cellina` is absent, so `preprocess_spatial_features` prints a warning and skips the spatial
-graph — `eval_loo.py` never uses it for scoring). `export DATA_ROOT=/data/ddimitrov/data`.
-One GPU per worker; `embed_dataset` hardcodes `cuda:0`, so pick the device with `CUDA_VISIBLE_DEVICES`.
+graph — `eval_loo.py` never uses it for scoring). `DATA_ROOT` defaults to `<repo>/data` (gitignored),
+with the raw slides under `data/datasets/crc/raw_zenodo/`, and TERRA-96M (and 112M) pre-downloaded into
+`data/hf` (`HF_HOME`, jobs run `HF_HUB_OFFLINE=1`).
+One GPU per job; `embed_dataset` hardcodes `cuda:0`, so pick the device with `CUDA_VISIBLE_DEVICES`
+(on Slurm, its masking already makes the allocated GPU `cuda:0`). terra's fine-tune path has no DDP —
+never request several GPUs.
 
 One (slide, cell type):
 
 ```bash
-export DATA_ROOT=/data/ddimitrov/data CUDA_VISIBLE_DEVICES=0
-PY=/data/ddimitrov/software/miniforge3/envs/terra/bin/python
+export DATA_ROOT=$PWD/data HF_HOME=$PWD/data/hf HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=0
+PY=/g/stegle/ddimitro/miniforge3/envs/terra/bin/python
 A=$DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad
 $PY scripts/terra/finetuning_lora.py --dataset_name crc --adata_path $A
 $PY scripts/terra/inference.py  --dataset_name crc --adata_path $A --holdout_celltype Fibroblast --variant lora --epoch 5
@@ -37,7 +41,9 @@ $PY scripts/terra/eval_terra.py --dataset_name crc --adata_path $A --holdout_cel
     --universe terra2k --cellina-cf cellina-pert
 ```
 
-All six slides: `scripts/terra/queue/launch_overnight.sh` (two GPUs, balanced by cell count).
+All six slides: submit the stage-1 job array with `scripts/terra/slurm/submit_finetune.sh`
+(`slurm/README.md`), or run the whole step chain for a slide on one GPU with
+`scripts/terra/queue/worker.sh auto crc_221`.
 
 Outputs land in `$DATA_ROOT/datasets/crc/{sid}/{ct}/` — `{model}_recon_x.h5ad`,
 `{model}_counterfactual_x_CRC.h5ad` and the `{model}-null` pair, exactly the files
