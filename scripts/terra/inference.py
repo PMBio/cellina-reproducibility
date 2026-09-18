@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """TERRA LOO inference: embed -> count decoder -> neighbour perturbation -> eval_loo h5ads.
 
-Straight port of `notebooks/loo_benchmarks/terra/terra_node_pert_finetune.ipynb` cells 23-26 + 31
-onto the benchmark's own preprocessing (scripts/terra/common.py). See PIPELINE_SPEC.md.
+Ported from the original exploratory notebook (no longer in the repo) onto the benchmark's own
+preprocessing (scripts/terra/common.py).  Decoder track of scripts/terra/README.md.
 
     python scripts/terra/inference.py --dataset_name crc --adata_path $DATA_ROOT/datasets/crc/raw_zenodo/crc_232.h5ad \
         --holdout_celltype Fibroblast --variant frozen [--skip-eval] [--max-cells N]

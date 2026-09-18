@@ -6,17 +6,16 @@
 #SBATCH --output=scripts/terra/slurm/logs/s2_%j.log
 # Stage 2 for ONE slide ($SID): for each arm in $ARMS ("frozen" | "lora:N", space-separated), for every
 # scored cell type in $CTS (SPACE-separated -- sbatch --export splits on commas):
-#   decoder track  inference.py  -> embed, count decoder (LOO per type), neighbour perturbation,
-#                                   eval_loo.py -> correlations/{sid}_terra-<arm>[-null]-cf_{ct}_CRC.json
-#   shift track    eval_terra.py -> gene-embedding W2 shift on the terra2k universe (precision@50)
-#                                -> correlations/{sid}_terra-<arm>-native-terra2k_{ct}_CRC.json
+#   2a  make_terra2k.py  -> {sid}_terra2k.h5ad (CPU, minutes; skipped if present).  Not used by the
+#                           decoder track itself, but terra_og_eval.py (stage 3) reads it, so it is
+#                           built here where the raw slide is already loaded.
+#   2b  inference.py     -> embed, count decoder (LOO per type), neighbour perturbation,
+#                           eval_loo.py -> correlations/{sid}_terra-<arm>[-null]-cf_{ct}_CRC.json
 # The arms run SEQUENTIALLY on one GPU: they share model-independent caches (tokenizer tmp dir,
-# ctrl/pert tokenised sets, terra2k universe) that inference.py / eval_terra.py rebuild in place, so
-# parallel arms of the same slide corrupt each other (seen 2026-09-16: stale NFS handles, bus errors).
-# Slides are independent and run in parallel as separate jobs.  Everything is re-entrant through the
-# caches under {sid}/{ct}/terra.  Submitted by submit_stage2.sh.
-# The cellina-pert reference column of the shift path is scored when its h5ads exist under
-# datasets/crc/{sid}_terra2k/{ct}/, otherwise eval_terra.py warns and skips that column.
+# ctrl/pert tokenised sets) that inference.py rebuilds in place, so parallel arms of the same slide
+# corrupt each other (seen 2026-09-16: stale NFS handles, bus errors).  Slides are independent and
+# run in parallel as separate jobs.  Everything is re-entrant through the caches under
+# {sid}/{ct}/terra.  Submitted by submit_stage2.sh.
 set -euo pipefail
 source "$SLURM_SUBMIT_DIR/scripts/terra/slurm/env.sh"
 A=$DATA_ROOT/datasets/crc/raw_zenodo/$SID.h5ad
@@ -33,9 +32,6 @@ for ARM in $ARMS; do
   echo "== $ARM decoder track $(date)"
   $PY scripts/terra/inference.py --dataset_name crc --adata_path "$A" --holdout_celltype "$CT1" \
       --eval-celltypes "$CTS_CSV" "${V[@]}"
-  echo "== $ARM shift track $(date)"
-  $PY scripts/terra/eval_terra.py --dataset_name crc --adata_path "$A" --holdout_celltype "$CT1" \
-      --eval-celltypes "$CTS_CSV" "${V[@]}" --universe terra2k --cellina-cf cellina-pert
   echo "== $ARM done $(date)"
 done
 echo "stage2 $SID done $(date)"

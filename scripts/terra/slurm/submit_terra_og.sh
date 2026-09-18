@@ -3,7 +3,7 @@
 #   scripts/terra/slurm/submit_terra_og.sh crc_232                 # 3 arms x 2 targets + 2 random jobs
 #   ARMS=frozen scripts/terra/slurm/submit_terra_og.sh crc_232     # validation: frozen x 2 targets
 #   RANDOM_SEEDS="" ARMS="lora:5 lora:2" scripts/terra/slurm/submit_terra_og.sh crc_232
-# One GPU per job.  Arms derive from summarize.arms() (epoch_selection.json), never hardcoded.
+# One GPU per job.  Arms derive from common.arms() (epoch_selection.json), never hardcoded.
 # Override: ARMS, TARGETS, RANDOM_SEEDS (default "0 1 2 3 4"; "" skips the random jobs),
 # CTS, MIN_VRAM, PARTITION, TEST_ONLY=1, ONLY_RANDOM=1 (submit just the random-control jobs),
 # SKIP_DONE=1 (skip jobs whose five per-run JSONs already exist -- resubmit only what is missing).
@@ -15,7 +15,7 @@ SID=${1:?usage: submit_terra_og.sh <sid>}
 MIN_VRAM=${MIN_VRAM:-40}; PARTITION=${PARTITION:-gpu-el8}
 SEL=$DATA_ROOT/datasets/crc/$SID/terra/epoch_selection.json
 [ -f "$SEL" ] || { echo "$SEL missing: stage 1 has not finished for $SID" >&2; exit 1; }
-ARMS=${ARMS:-$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import summarize as s
+ARMS=${ARMS:-$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import common as s
 print(' '.join('frozen' if e is None else f'lora:{e}' for _,e,_ in s.arms('$DATA_ROOT/datasets/crc/$SID','$SID')))")}
 TARGETS=${TARGETS:-"neighb_only ct_neigh"}
 RANDOM_SEEDS=${RANDOM_SEEDS-"0 1 2 3 4"}

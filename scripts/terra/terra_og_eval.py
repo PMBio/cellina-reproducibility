@@ -65,7 +65,6 @@ EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_siz
                   include_spatial_cell_emb=True, return_token_embeddings=True,
                   ignore_spc_tokens=True, num_workers=8)
 N_PREV_CANDIDATES = 20  # prevalence-matched random partner: nearest-20 by REF slot prevalence
-HOLDOUT_CT_PIN = "Endothelial"   # only selects common.layout's cache dir; never subsets rows
 
 
 # --------------------------------------------------------------------------- logging capture

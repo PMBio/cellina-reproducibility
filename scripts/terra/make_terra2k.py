@@ -1,7 +1,7 @@
-"""WP4 step 1: raw slide -> TERRA-harmonised -> terra's own 2000 seurat_v3 HVGs.
+"""Stage 2a: raw slide -> TERRA-harmonised -> terra's own 2000 seurat_v3 HVGs.
 
 Writes `{sid}_terra2k.h5ad` (raw counts in .X, all obs intact) + `{sid}_terra2k_genes.txt`,
-the shift-path universe of EVAL_232_PLAN.md.  CPU only.
+the gene universe of the terra_og track (terra_og_eval.py reads both).  CPU only.
 """
 import argparse
 import os

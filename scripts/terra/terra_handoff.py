@@ -19,7 +19,6 @@ Decisions this encodes (Daniel, round 1-2 of the design interview):
 
     python scripts/terra/terra_handoff.py
 """
-import shutil
 import sys
 from pathlib import Path
 
@@ -122,9 +121,6 @@ def main():
         f"Arms returning a bit-identical precision@50: "
         f"{int(ident.groupby(level='target').sum().get('ct_neigh', 0))}/30 ct_neigh folds, "
         f"{int(ident.groupby(level='target').sum().get('neighb_only', 0))}/30 neighb_only.\n")
-
-    for f in ("terra_summary_tables.py", "terra_handoff.py", "terra_og_eval.py"):
-        shutil.copy(REPO / "scripts" / "terra" / f, OUT / f)
 
     print(t1, "\n")
     for b in blocks:

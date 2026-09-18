@@ -2,7 +2,7 @@
 # Stage 2 for one slide whose fine-tune has finished (epoch_selection.json exists):
 #   scripts/terra/slurm/submit_stage2.sh crc_232
 # Derives the arms (frozen, lora-ep{final}, lora-ep{latest_passing}) from epoch_selection.json via
-# summarize.arms() and the scored cell types from the cellina-pert reference CSV (summarize.cellina_df()),
+# common.arms() and the scored cell types from the cellina-pert reference CSV (common.cellina_df()),
 # and submits ONE stage2.sbatch job (arms run sequentially; they share caches) on $PARTITION
 # (default gpu-el8, any card >= MIN_VRAM GB).  Cell types are exported space-separated: --export splits on commas.
 set -euo pipefail
@@ -11,9 +11,9 @@ SID=${1:?usage: submit_stage2.sh <sid>}
 MIN_VRAM=${MIN_VRAM:-48}; PARTITION=${PARTITION:-gpu-el8}
 SEL=$DATA_ROOT/datasets/crc/$SID/terra/epoch_selection.json
 [ -f "$SEL" ] || { echo "$SEL missing: stage 1 has not finished for $SID" >&2; exit 1; }
-ARMS=$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import summarize as s
+ARMS=$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import common as s
 print(' '.join('frozen' if e is None else f'lora:{e}' for _,e,_ in s.arms('$DATA_ROOT/datasets/crc/$SID','$SID')))")
-CTS=$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import summarize as s
+CTS=$($PY -c "import sys;sys.path.insert(0,'scripts/terra');import common as s
 d=s.cellina_df();print(' '.join(d[d.sid=='$SID'].holdout_celltype))")
 [ -n "$CTS" ] || { echo "no scored cell types for $SID" >&2; exit 1; }
 case $PARTITION in

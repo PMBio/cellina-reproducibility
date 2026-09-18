@@ -1,4 +1,4 @@
-"""Shared data loading / path layout for the TERRA LOO pipeline (PIPELINE_SPEC.md).
+"""Shared data loading / path layout for the TERRA LOO pipeline (see README.md).
 
 One job: hand every TERRA script the *same* objects the cellina benchmark uses
 (`train_loo.preprocess_*` + `train_loo.split_indices`) plus a TERRA-harmonised
@@ -6,13 +6,17 @@ all-genes twin with identical rows.
 
 Nothing here is TERRA-specific except `harmonize_adata` / `tokenize_adata`.
 """
+import io
+import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import scanpy as sc
 import scipy.sparse as sp
 
@@ -335,6 +339,40 @@ def map_perturbation(ds, delta, codes, seq_len_cell, include_cell=False):
     return out
 
 
+# --------------------------------------------------------------------- run-selection helpers
+# Used by the Slurm submitters (`import common as s; s.arms(...)`, `s.cellina_df()`), so the
+# scored (slide, cell type) pairs and the arms per slide are derived, never hardcoded.
+REPO = Path(__file__).resolve().parents[2]
+CELLINA_CSV = "results/loo_cellina_crc_DEG_50_pert_v2.csv"
+
+
+def cellina_df():
+    """cellina-pert rows of the reference CSV on origin/results -> the scored (sid, cell type) pairs."""
+    r = subprocess.run(["git", "-C", str(REPO), "show", f"origin/results:{CELLINA_CSV}"],
+                       capture_output=True, text=True)
+    assert not r.returncode, f"cannot read {CELLINA_CSV} from origin/results: {r.stderr}"
+    df = pd.read_csv(io.StringIO(r.stdout))
+    return df[df.model_name == "cellina-pert"].reset_index(drop=True)
+
+
+def arms(slide_dir, sid):
+    """[(arm, epoch|None, passed|None)] -- frozen + the LoRA epochs worth scoring.
+
+    From `{slide_dir}/terra/epoch_selection.json`: the final epoch, plus the latest
+    guard-passing epoch when that differs.  Only "terra-frozen" if the file is missing.
+    """
+    out = [("terra-frozen", None, None)]
+    sel = Path(slide_dir) / "terra" / "epoch_selection.json"
+    if not sel.exists():
+        print(f"WARN: missing {sel}; {sid} gets the frozen arm only", file=sys.stderr)
+        return out
+    j = json.loads(sel.read_text())
+    final, k = j["final_epoch"], j["latest_passing_epoch"]
+    for ep in [final] + ([k] if k is not None and k != final else []):
+        out.append((f"terra-lora-ep{ep}", ep, j["epochs"][str(ep)]["passed"]))
+    return out
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -343,7 +381,9 @@ if __name__ == "__main__":
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", default="Fibroblast")
     p.add_argument("--universe", default="benchmark", choices=["benchmark", "terra2k"])
-    p.add_argument("--tokenize", action="store_true")
+    p.add_argument("--tokenize", action="store_true",
+                   help="build the tokenizer cache (stage 2a: --universe terra2k --tokenize "
+                        "writes {sid}/terra_tok_terra2k, which terra_og_eval.py reads)")
     a = p.parse_args()
 
     md = model_dir()

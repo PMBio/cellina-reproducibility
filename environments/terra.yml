@@ -1,5 +1,5 @@
-# Conda environment for the TERRA node-perturbation notebook
-# (notebooks/loo_benchmarks/terra/terra_node_pert.ipynb).
+# Conda environment for the TERRA benchmark scripts (scripts/terra/, see its README.md).
+# The Slurm scripts point at the resolved interpreter via PY= in scripts/terra/slurm/env.sh.
 #
 # TERRA (Lotfollahi lab; https://github.com/Lotfollahi-lab/terra) is a JEPA
 # spatial-transcriptomics foundation model, kept in its OWN environment: it
@@ -17,8 +17,10 @@
 #    selects the EFFICIENT/CUDNN backends itself.
 #  - `perturb` extra -> geomloss (embedding-space W2), `hub` -> huggingface_hub
 #    (download_pretrained), `notebook` -> jupyterlab/ipykernel.
-#  - decoupler is required by ../scripts/counterfactual_analysis.py, which the
-#    notebook imports for metric parity with the other LOO baselines.
+#  - decoupler is required by ../scripts/counterfactual_analysis.py, which
+#    eval_loo.py / terra_og_eval.py import for metric parity with the other LOO baselines.
+#  - terra-st is pinned to the version every reported run used (perturb_dataset
+#    supports only knockout/foldchange in 0.1.13).
 name: terra
 channels:
   - conda-forge
@@ -28,6 +30,6 @@ dependencies:
   - pip:
       - --extra-index-url https://download.pytorch.org/whl/cu121
       - torch==2.5.1+cu121
-      - "terra-st[perturb,hub,notebook]"
+      - "terra-st[perturb,hub,notebook]==0.1.13"
       - "decoupler>=2"
       - adjustText
