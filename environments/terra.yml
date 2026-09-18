@@ -1,0 +1,35 @@
+# Conda environment for the TERRA benchmark scripts (scripts/terra/, see its README.md).
+# The Slurm scripts point at the resolved interpreter via PY= in scripts/terra/slurm/env.sh.
+#
+# TERRA (Lotfollahi lab; https://github.com/Lotfollahi-lab/terra) is a JEPA
+# spatial-transcriptomics foundation model, kept in its OWN environment: it
+# pulls transformers/peft/datasets/pyensembl and shares none of the scvi-tools
+# stack that `cellina.yml` uses.
+#
+# Create with:
+#   conda env create -f environments/terra.yml
+#
+# NOTES
+#  - torch is pinned to a +cu121 build: this box runs driver 535.216.01
+#    (CUDA 12.2) on RTX 4090s (sm_89). TERRA's own environment.yaml pins
+#    pytorch 2.0 / cuda 11.7, which predates sm_89 -- do not use it here.
+#  - No flash-attn package is needed; TERRA calls torch's native SDPA and
+#    selects the EFFICIENT/CUDNN backends itself.
+#  - `perturb` extra -> geomloss (embedding-space W2), `hub` -> huggingface_hub
+#    (download_pretrained), `notebook` -> jupyterlab/ipykernel.
+#  - decoupler is required by ../scripts/counterfactual_analysis.py, which
+#    eval_loo.py / terra_og_eval.py import for metric parity with the other LOO baselines.
+#  - terra-st is pinned to the version every reported run used (perturb_dataset
+#    supports only knockout/foldchange in 0.1.13).
+name: terra
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - torch==2.5.1+cu121
+      - "terra-st[perturb,hub,notebook]==0.1.13"
+      - "decoupler>=2"
+      - adjustText
