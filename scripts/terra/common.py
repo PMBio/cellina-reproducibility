@@ -24,7 +24,7 @@ _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-PX_TO_UM = {"crc": 0.12028, "merfish": 0.109}
+PX_TO_UM = {"crc": 0.12028, "merfish": 1}
 # TERRA-96M (default): trained on a 96M-cell subset of HST-Corpus-112M, the rest held out for
 # benchmarking. TERRA_MODEL=lotfollahi-lab/TERRA-112M switches to the full-corpus model (its token
 # dictionary has `spv_cosmx` / `spv_colon`, so it may have seen these slides); at batch 128 it

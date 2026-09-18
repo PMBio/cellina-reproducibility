@@ -126,13 +126,21 @@ def show(title, lines, metrics):
 
 
 # ---------------------------------------------------------------- shift track
+def _w2(pw, stat=None):
+    """spatial_cell_emb_w2 of a population_w2 block; NaN for arms without embeddings (cellina)."""
+    if not pw:
+        return float("nan")
+    v = pw["spatial_cell_emb_w2"]
+    return v[stat] if stat else v
+
+
 def shift_rows(amap):
     rows = []
     for f in sorted(PER_RUN.glob("*.json")):
         j = json.loads(f.read_text())
         sid, arm, tgt, ct = j["sid"], j["arm"], j["target_label"], j["coarse_type"]
         rnd = j.get("random_control")
-        labels = amap[sid].get(arm, [])
+        labels = amap[sid].get(arm, [arm])      # non-TERRA arms (cellina-pert) keep their own name
         base = {"sid": sid, "holdout_celltype": f"{ct}_{tgt}", "coarse_type": ct,
                 "target": tgt, "n_genes_all": j["universes"]["all"]["n_genes"],
                 "n_genes_mp": j["universes"]["minus_perturbed"]["n_genes"],
@@ -144,7 +152,7 @@ def shift_rows(amap):
                          "precision_mp": rnd["universes"]["minus_perturbed"]["precision_mean"],
                          "spearman_all": rnd["universes"]["all"]["spearman_mean"],
                          "spearman_mp": rnd["universes"]["minus_perturbed"]["spearman_mean"],
-                         "w2_spatial_cell": rnd["population_w2"]["spatial_cell_emb_w2"]["mean"],
+                         "w2_spatial_cell": _w2(rnd["population_w2"], "mean"),
                          "source": f.name})
             continue
         for lab in labels:
@@ -153,7 +161,7 @@ def shift_rows(amap):
                          "precision_mp": j["universes"]["minus_perturbed"]["precision"],
                          "spearman_all": j["universes"]["all"]["spearman"],
                          "spearman_mp": j["universes"]["minus_perturbed"]["spearman"],
-                         "w2_spatial_cell": j["population_w2"]["spatial_cell_emb_w2"],
+                         "w2_spatial_cell": _w2(j["population_w2"]),
                          "source": f.name})
     return pd.DataFrame(rows)
 
@@ -193,7 +201,7 @@ def main():
     # ---- shift -------------------------------------------------------------
     sh = shift_rows(amap)
     sh.to_csv(OUT / "terra_shift_folds.csv", index=False)
-    sh_order = terra_order + ["terra-random-gene"]
+    sh_order = terra_order + ["terra-random-gene", "cellina-pert"]
     for tgt in ["neighb_only", "ct_neigh"]:
         s = sh[sh.target == tgt]
         sm = {"precision_all": +1, "precision_mp": +1, "spearman_all": +1, "chance": 0}

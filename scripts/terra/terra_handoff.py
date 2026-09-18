@@ -34,7 +34,8 @@ ARMS = ["terra-frozen", "terra-lora-final"]          # Q1 + Q2
 TGT = {"neighb_only": "nb-only", "ct_neigh": "ct-nb"}  # Q10: no underscores
 RENAME = {"terra-frozen": r"TERRA$_{node-pert}$",
           "terra-lora-final": r"TERRA-LoRA$_{node-pert}$",
-          "terra-random-gene": "random gene"}
+          "terra-random-gene": "random gene",
+          "cellina-pert": r"Cellina$_{node-pert}$"}
 
 
 def md_table(g, n, metrics, order, rename=None):
