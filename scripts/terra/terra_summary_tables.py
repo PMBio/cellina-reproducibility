@@ -147,14 +147,31 @@ def shift_rows(amap):
                 "chance": j["universes"]["all"]["chance"],
                 "n_perturbed_in_universe": j["n_perturbed_in_universe"]}
         if rnd:                                   # the random-gene control file
-            rows.append({**base, "model_name": "terra-random-gene",
+            rlab = "terra-random-gene" if arm.startswith("terra") else f"{arm}-random-gene"
+            rows.append({**base, "model_name": rlab,
                          "precision_all": rnd["universes"]["all"]["precision_mean"],
                          "precision_mp": rnd["universes"]["minus_perturbed"]["precision_mean"],
                          "spearman_all": rnd["universes"]["all"]["spearman_mean"],
                          "spearman_mp": rnd["universes"]["minus_perturbed"]["spearman_mean"],
                          "w2_spatial_cell": _w2(rnd["population_w2"], "mean"),
                          "source": f.name})
+            if "universes_z" in rnd:              # cellina: noise-normalised statistic, random genes
+                rows.append({**base, "model_name": f"{arm}-z-random-gene",
+                             "precision_all": rnd["universes_z"]["all"]["precision_mean"],
+                             "precision_mp": rnd["universes_z"]["minus_perturbed"]["precision_mean"],
+                             "spearman_all": rnd["universes_z"]["all"]["spearman_mean"],
+                             "spearman_mp": rnd["universes_z"]["minus_perturbed"]["spearman_mean"],
+                             "w2_spatial_cell": float("nan"), "source": f.name})
             continue
+        # cellina extras (cellina_on_terra_universe.py): sampling null and z-scored variants
+        for suffix, key in (("-null", "universes_null"), ("-z", "universes_z")):
+            if key in j:
+                rows.append({**base, "model_name": f"{arm}{suffix}",
+                             "precision_all": j[key]["all"]["precision"],
+                             "precision_mp": j[key]["minus_perturbed"]["precision"],
+                             "spearman_all": j[key]["all"]["spearman"],
+                             "spearman_mp": j[key]["minus_perturbed"]["spearman"],
+                             "w2_spatial_cell": float("nan"), "source": f.name})
         for lab in labels:
             rows.append({**base, "model_name": lab,
                          "precision_all": j["universes"]["all"]["precision"],
@@ -201,7 +218,8 @@ def main():
     # ---- shift -------------------------------------------------------------
     sh = shift_rows(amap)
     sh.to_csv(OUT / "terra_shift_folds.csv", index=False)
-    sh_order = terra_order + ["terra-random-gene", "cellina-pert"]
+    sh_order = terra_order + ["terra-random-gene", "cellina-pert", "cellina-pert-random-gene",
+                              "cellina-pert-null", "cellina-pert-z", "cellina-pert-z-random-gene"]
     for tgt in ["neighb_only", "ct_neigh"]:
         s = sh[sh.target == tgt]
         sm = {"precision_all": +1, "precision_mp": +1, "spearman_all": +1, "chance": 0}

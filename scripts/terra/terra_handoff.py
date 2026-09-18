@@ -35,7 +35,13 @@ TGT = {"neighb_only": "nb-only", "ct_neigh": "ct-nb"}  # Q10: no underscores
 RENAME = {"terra-frozen": r"TERRA$_{node-pert}$",
           "terra-lora-final": r"TERRA-LoRA$_{node-pert}$",
           "terra-random-gene": "random gene",
-          "cellina-pert": r"Cellina$_{node-pert}$"}
+          "cellina-pert": r"Cellina$_{node-pert}$",
+          "cellina-pert-random-gene": "Cellina, random gene",
+          "cellina-pert-null": "Cellina, sampling null (draw vs draw)",
+          "cellina-pert-z": r"Cellina$_{node-pert}$ (z-scored)",
+          "cellina-pert-z-random-gene": "Cellina, random gene (z-scored)"}
+SHIFT_ORDER = ARMS + ["terra-random-gene", "cellina-pert", "cellina-pert-random-gene",
+                      "cellina-pert-null", "cellina-pert-z", "cellina-pert-z-random-gene"]
 
 
 def md_table(g, n, metrics, order, rename=None):
@@ -80,7 +86,7 @@ def main():
 
     # ---------------- shift: terra_og supplementary table ----------------
     sh = shift_rows(amap)
-    sh = sh[sh.model_name.isin(ARMS + ["terra-random-gene"])]             # Q1, Q3
+    sh = sh[sh.model_name.isin(SHIFT_ORDER)]                              # Q1, Q3 + cellina rows
     sh["degenerate"] = sh.chance > 0.2                                    # Q4
     sh["excess_over_chance"] = sh.precision_all - sh.chance
     sup = pd.DataFrame({
@@ -104,12 +110,12 @@ def main():
         gg = s.groupby("model_name")[list(SM)].agg(["mean", "std"])
         nn = s.groupby("model_name").size()
         blocks.append(f"**target = `{lab}`** ({tgt})\n\n"
-                      + md_table(gg, nn, SM, ARMS + ["terra-random-gene"], RENAME))
+                      + md_table(gg, nn, SM, SHIFT_ORDER, RENAME))
     ident = (sh[sh.model_name.isin(ARMS)]
              .pivot_table(index=["sid", "coarse_type", "target"], columns="model_name",
                           values="precision_all").nunique(axis=1) == 1)
 
-    n_deg_folds = int(sup.degenerate.sum() / 3)
+    n_deg_folds = int(sup[sup.degenerate].groupby(["sid", "holdout_celltype"]).ngroups)
     (OUT / "tables" / "table1_decoder.md").write_text(
         "# Table 1 -- CRC leave-one-cell-type-out, decoder track\n\n"
         "Mean ± std over the 30 folds (6 slides × 5 held-out cell types), identical\n"
