@@ -224,3 +224,4 @@ spatialprop/output/
 output/
 notebooks/neighb_perts/results/
 *.npz
+pretrained/
