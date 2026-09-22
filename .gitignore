@@ -227,3 +227,4 @@ notebooks/neighb_perts/results/
 # local data root (cluster runs); see scripts/terra/slurm/README.md
 /data/
 /pretrained/
+notebooks/in_vivo/terra_pfish/
