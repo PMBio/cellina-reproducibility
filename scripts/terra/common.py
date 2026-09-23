@@ -20,7 +20,7 @@ _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-PX_TO_UM = {"crc": 0.12028, "merfish": 0.109}
+PX_TO_UM = {"crc": 0.12028, "merfish": 1}
 MODEL_REPO = "lotfollahi-lab/TERRA-96M"
 N_PERT_GENES = 200
 

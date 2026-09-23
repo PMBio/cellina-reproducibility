@@ -56,6 +56,9 @@ print('\n'.join(('frozen' if e is None else f'lora {e}') for _,e,_ in s.arms('$D
     [ -n "${epoch:-}" ] && { ep=(--epoch "$epoch"); tag=${variant}_ep$epoch; }
     step "$sid" "inf_$tag" $PY scripts/terra/inference.py --dataset_name crc --adata_path "$a" \
       --holdout_celltype "$ct1" --eval-celltypes "$cts" --variant "$variant" ${ep[@]+"${ep[@]}"} || return 1
+    # the shift path needs terra's own 2000-HVG copy of the slide (CPU, skipped if present)
+    step "$sid" "terra2k_$tag" $PY scripts/terra/make_terra2k.py --adata_path "$a" \
+      --out_dir "$DATA_ROOT/datasets/crc/raw_zenodo_terra2k" || return 1
     step "$sid" "shift_$tag" $PY scripts/terra/eval_terra.py --dataset_name crc --adata_path "$a" \
       --holdout_celltype "$ct1" --eval-celltypes "$cts" --variant "$variant" ${ep[@]+"${ep[@]}"} \
       --universe terra2k --cellina-cf cellina-pert || return 1

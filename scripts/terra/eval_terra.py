@@ -45,6 +45,8 @@ UNI_HVG = "(ii) n benchmark HVGs"   # = the terra2k genes when --universe terra2
 SEQ_LEN_CELL = 256      # model_config['data']['seq_len_cell']
 BLUR = 0.01             # terra infer_token_distance default
 N_RANDOM_SETS = 10      # TERRA paper protocol
+MIN_UNIVERSE = 1000     # precision@k needs a universe much larger than k: below this it is
+                        # reported as null (crc_221 Endothelial has 531 control cells -> 76 HVGs)
 EMB_KWARGS = dict(emb_layer=None, agg_excluded_genes=None, top_k=None, batch_size=32,
                   include_spatial_cell_emb=True, return_token_embeddings=True,
                   ignore_spc_tokens=True, num_workers=8)
@@ -137,14 +139,29 @@ def build_inputs(d, tok, model_dir_path, hd, scored_ct, max_cells=None):
     return ctrl_tok, pert_tok, rand_toks, delta, tok2sym, gt_lfc, n_mapped
 
 
+CLOUD_CHUNK = 2000      # cells per embed call: token_emb is ~4.3 MB/cell before the slice
+
+
 def _token_cloud(model_folder, ds):
     """The cell's own token embeddings under FULL neighbourhood attention, flattened to
-    (n_cells * 256, 384) and L2-normalised, on the GPU."""
-    out = embed_dataset(dataset=ds, **dict(EMB_KWARGS, model_folder_path=str(model_folder)))
-    # token_emb IS n_emb: all 2816 positions (96M has special_tokens: []), so position i is
-    # gene_tokens[i]. ~12.5 GB fp32 for 2,881 cells -- slice to 1.1 GB and drop it.
-    emb = torch.from_numpy(np.ascontiguousarray(out["token_emb"][:, :SEQ_LEN_CELL]))
-    del out
+    (n_cells * 256, 384) and L2-normalised, on the GPU.
+
+    Embedded in chunks: token_emb comes back with all 2816 positions (~4.3 MB per cell) and only
+    the first SEQ_LEN_CELL are the cell's own, so a whole slide's control set (20k cells on
+    crc_210) would need ~88 GB of host RAM -- and w2_against holds two clouds at once.  Slicing
+    each chunk before concatenating keeps the peak at CLOUD_CHUNK * 4.3 MB and changes nothing:
+    embed_dataset is per-cell with the neighbourhood carried inside each row.
+    """
+    parts = []
+    for lo in range(0, len(ds), CLOUD_CHUNK):
+        out = embed_dataset(dataset=ds.select(range(lo, min(lo + CLOUD_CHUNK, len(ds)))),
+                            **dict(EMB_KWARGS, model_folder_path=str(model_folder)))
+        # token_emb IS n_emb: all 2816 positions (96M has special_tokens: []), so position i is
+        # gene_tokens[i].
+        parts.append(np.ascontiguousarray(out["token_emb"][:, :SEQ_LEN_CELL]))
+        del out
+    emb = torch.from_numpy(np.concatenate(parts) if len(parts) > 1 else parts[0])
+    del parts
     emb = emb.reshape(-1, emb.shape[-1]).to("cuda:0", torch.float32)
     return emb / (emb.norm(dim=1, keepdim=True) + 1e-12)      # _l2_normalize_rows
 
@@ -198,23 +215,28 @@ def score_gene_shift(model_folder, ctrl_tok, pert_tok, rand_toks, delta, tok2sym
     res, rows = {}, []
     for uname, m in uni.items():
         t, n = truth[m], int(m.sum())
-        scored = {s: dict(precision=precision(t, w[m], k=k),
+        small = n < MIN_UNIVERSE      # precision@k is not discriminative on a tiny universe
+        scored = {s: dict(precision=None if small else precision(t, w[m], k=k),
                           pearson=pearsonr(t, w[m])[0], spearman=spearmanr(t, w[m])[0])
                   for s, w in shifts.items()}
         rnd = [v for s, v in scored.items() if s.startswith("random_")]
-        res[uname] = dict(n_genes=n, k=k, chance=k / n, **scored["pipeline"],
-                          **{f"random_{f}_mean": float(np.mean([r[f] for r in rnd]))
+        res[uname] = dict(n_genes=n, k=k, chance=None if small else k / n, **scored["pipeline"],
+                          **{f"random_{f}_mean": None if (small and f == "precision") else
+                             float(np.mean([r[f] for r in rnd]))
                              for f in ("precision", "pearson", "spearman")})
+        if small:
+            res[uname]["precision_skipped"] = f"universe {n} < MIN_UNIVERSE {MIN_UNIVERSE}"
         for s, v in scored.items():
             rows.append(dict(universe=uname, arm=s, n_genes=n, **v))
-        rows.append(dict(universe=uname, arm="chance", n_genes=n, precision=k / n,
-                         pearson=np.nan, spearman=np.nan))
+        rows.append(dict(universe=uname, arm="chance", n_genes=n,
+                         precision=None if small else k / n, pearson=np.nan, spearman=np.nan))
 
     assert np.isfinite(np.concatenate(list(shifts.values()))).all(), "non-finite W2"
     assert self_w2 < 1e-3, f"W2 of a cloud against itself is {self_w2:.3e}, not ~0"
     assert int((~is_pert).sum()) == len(utok) - int(is_pert.sum()), "universe (iii) size"
     assert 0 < in_hvg.sum() <= len(utok), "universe (ii) size"
-    assert all(0 <= r["precision"] <= 1 for r in rows), "precision@k outside [0, 1]"
+    assert all(0 <= r["precision"] <= 1 for r in rows
+               if r["precision"] is not None), "precision@k outside [0, 1]"
 
     per_gene = pd.DataFrame(dict(gene=genes, n_cells=n_per_tok[utok], w2=shifts["pipeline"],
                                  abs_log2fc=truth, is_perturbed=is_pert, in_hvg=in_hvg))
@@ -267,10 +289,13 @@ def score_cellina_cf(d, name, scored_ct, hd, genes, truth, k):
 
     vecs = {arm: cellina_abs_lfc(p, mean_ctrl, ctrl_names, index).loc[genes].to_numpy()
             for arm, p in paths.items()}
-    scored = {arm: dict(precision=precision(truth, v, k=k), pearson=pearsonr(truth, v)[0],
+    small = len(genes) < MIN_UNIVERSE
+    scored = {arm: dict(precision=None if small else precision(truth, v, k=k),
+                        pearson=pearsonr(truth, v)[0],
                         spearman=spearmanr(truth, v)[0]) for arm, v in vecs.items()}
+    pr = scored["cellina"]["precision"]
     print(f"[cellina] {name}: {len(ctrl_names):,} control cells, {len(genes)} scored genes | "
-          f"precision@{k}={scored['cellina']['precision']:.3f} "
+          f"precision@{k}={'null (small universe)' if pr is None else format(pr, '.3f')} "
           f"spearman={scored['cellina']['spearman']:.3f}")
     return scored, vecs
 
@@ -283,7 +308,7 @@ def main():
     p.add_argument("--variant", required=True, choices=["frozen", "lora"])
     p.add_argument("--epoch", type=int, default=None, help="--variant lora: LoRA bundle epoch")
     p.add_argument("--min-cells", type=int, default=20)
-    p.add_argument("--k", type=int, default=100)         # TERRA paper protocol
+    p.add_argument("--k", type=int, default=50)          # top-k for every shift-path metric
     p.add_argument("--max-cells", type=int, default=None, help="smoke test: first N control cells")
     p.add_argument("--eval-celltypes", default=None,
                    help="comma-separated cell types to score (default: the holdout only)")
@@ -325,7 +350,9 @@ def main():
                     res[UNI_HVG].update(
                         cellina_model=a.cellina_cf,
                         **{f"cellina_{f}": scored["cellina"][f] for f in ("precision", "pearson", "spearman")},
-                        **{f"cellina_random_{f}_mean": float(np.mean([r[f] for r in rnd]))
+                        # precision is None on a universe below MIN_UNIVERSE -- keep it null
+                        **{f"cellina_random_{f}_mean":
+                           None if any(r[f] is None for r in rnd) else float(np.mean([r[f] for r in rnd]))
                            for f in ("precision", "pearson", "spearman")})
                     table = pd.concat([table, pd.DataFrame(
                         [dict(universe=UNI_HVG, arm=s, n_genes=int(m.sum()), **v)
