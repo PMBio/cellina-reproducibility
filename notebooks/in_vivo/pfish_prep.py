@@ -38,14 +38,22 @@ CONN_KEY = "spatial_connectivities"            # (possibly) test-masked graph
 
 
 def load_pfish(path: str) -> sc.AnnData:
-    """Load the linearized h5ad and materialise ``counts`` and ``lognorm`` layers.
+    """Load a pfish h5ad and materialise ``counts`` and ``lognorm`` layers.
 
     - ``layers['counts']``  : reconstructed raw integer counts (for Cellina/NB).
     - ``layers['lognorm']`` : the stored ``log1p`` layer (log of normalized X).
-    - ``X`` is left as the normalized values on load; callers set it explicitly.
+    - ``X`` is left as loaded; callers set it explicitly.
+
+    Some pfish h5ads (e.g. ``pfish_full.h5ad``) already ship ``counts``/``lognorm``
+    baked in and store raw counts directly in ``X``; reconstructing from ``X`` in
+    that case would double-scale it (``X`` is not the linearized/normalized form
+    this function expects). So if both layers are already present, they're used
+    as-is instead of being rebuilt.
     """
     adata = sc.read_h5ad(path)
-
+    if "counts" in adata.layers and "lognorm" in adata.layers:
+        return adata
+    
     # Recover raw counts: X = raw / n_counts * NORM_TARGET  ->  raw = X * n_counts / NORM_TARGET
     n_counts = adata.obs["n_counts"].to_numpy()[:, None].astype(np.float64)
     raw = np.asarray(adata.X, dtype=np.float64) * n_counts / NORM_TARGET
