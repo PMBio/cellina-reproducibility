@@ -1,15 +1,16 @@
 """Multi-seed train + eval for the in-vivo Perturb-FISH counterfactual experiment.
 
 Ports the pipelines in ``notebooks/in_vivo/pfish_analysis.ipynb`` (cellina /
-cellina-gat) and ``notebooks/in_vivo/spprop_analysis.ipynb`` (spatialprop) into a
-script that trains and evaluates ``--num_seeds`` independently-seeded models and
-appends one row per (KO, type, baseline, seed) to a results CSV. Aggregation
-across seeds/models is left to a separate notebook, as requested -- this script
-only produces the raw per-seed rows.
+cellina-gat), ``notebooks/in_vivo/spprop_analysis.ipynb`` (spatialprop), and
+``scripts/terra/in_vivo.ipynb`` section 3 onward (terra) into a script that
+trains and evaluates ``--num_seeds`` independently-seeded models and appends one
+row per (KO, type, baseline, seed) to a results CSV. Aggregation across
+seeds/models is left to a separate notebook, as requested -- this script only
+produces the raw per-seed rows.
 
 cellina / cellina-gat need the ``cellina-graph`` conda env; spatialprop needs
-``spatial-prop`` (they can't coexist in one interpreter), so run this once per
-model from the matching env, e.g.:
+``spatial-prop``; terra needs ``terra`` (they can't coexist in one interpreter),
+so run this once per model from the matching env, e.g.:
 
     conda run -n cellina-graph python scripts/invivo_multi_seed.py \\
         --model cellina --num_seeds 5 \\
@@ -23,12 +24,15 @@ model from the matching env, e.g.:
         --model spatialprop --num_seeds 5 \\
         --adata_path notebooks/in_vivo/pfish_xenograf_tumor_linearized.h5ad
 
+    conda run -n terra python scripts/invivo_multi_seed.py \\
+        --model terra --num_seeds 5
+
 Results go to ``<out_dir>/invivo_multiseed_<model>.csv`` (appended incrementally,
 one seed at a time, so a crash partway through a long run doesn't lose earlier
 seeds). The ``mean`` baseline is model-agnostic and data-only (same formula and
 score for any model given the same seed's ``far`` sample), so it is only ever
-computed/saved for ``--model cellina`` -- saving it again for cellina-gat or
-spatialprop would just be duplicate rows.
+computed/saved for ``--model cellina`` -- saving it again for cellina-gat,
+spatialprop, or terra would just be duplicate rows.
 
 Note on a discrepancy fixed during porting: pfish_analysis.ipynb's random
 baseline draws two *independent* random cancer-cell samples per draw index (one
@@ -37,11 +41,25 @@ counterfactual matrix used in the other metrics), so "draw i" isn't the same
 cells in both. spprop_analysis.ipynb draws once per index and reuses it for both
 outputs, which is the intended behavior (self-consistent baseline draws) and is
 what this script does for every model.
+
+``--model terra`` assumes the fine-tuned encoder already exists (sections 0-2 of
+``scripts/terra/in_vivo.ipynb`` already run: pretrained bundle downloaded, LoRA
+fine-tuned, ``epoch_selection.json``/``decoder_split.json`` written). It does
+NOT take ``--adata_path`` -- terra's inputs (``pfish_terra.h5ad``/
+``pfish_full.h5ad``, the fine-tuned encoder bundle) are fixed, since the encoder
+cache is tied to them. Per the request that drove this: only the *decoder* is
+retrained per seed. Tokenization, the fine-tuned encoder's embeddings, the
+synthetic KO/random signatures, and the per-condition neighbourhood embeddings
+(``s`` in ``cat(z, s)``) are all computed once (reusing the on-disk caches
+``common.tokenize_cached``/``common.embed_cached`` already maintain) and shared
+across every seed; each seed only reruns ``terra.training.decode`` with a fresh
+``--seed`` and then decodes the cached embeddings with that seed's checkpoint.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -51,6 +69,7 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IN_VIVO_DIR = REPO_ROOT / "notebooks" / "in_vivo"
+TERRA_SCRIPTS_DIR = REPO_ROOT / "scripts" / "terra"
 sys.path.insert(0, str(IN_VIVO_DIR))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -63,7 +82,26 @@ N_DEG = 10
 COUNTS_PER_K = 1e4
 FAR_CAP = 6000
 
-MODEL_CHOICES = ["cellina", "cellina-gat", "spatialprop"]
+MODEL_CHOICES = ["cellina", "cellina-gat", "spatialprop", "terra"]
+
+# --- terra-specific fixed paths (scripts/terra/in_vivo.ipynb sections 0-2's outputs) ---
+PFISH_TERRA = IN_VIVO_DIR / "pfish_terra.h5ad"    # 500 genes, encoder-side panel
+PFISH_FULL = IN_VIVO_DIR / "pfish_full.h5ad"      # 154 genes, comparable to the other models
+TERRA_MODEL_REPO = "lotfollahi-lab/TERRA-96M"
+TERRA_PRETRAINED_DIR = REPO_ROOT / "pretrained"
+TERRA_PX_TO_UM = 0.108
+TERRA_WORK = (IN_VIVO_DIR / "terra_pfish" / "terra").resolve()
+TERRA_TOK_CACHE = TERRA_WORK.parent / "terra_tok"
+TERRA_SELECTION_PATH = TERRA_WORK / "epoch_selection.json"
+TERRA_DECODER_SPLIT_PATH = IN_VIVO_DIR / "terra_pfish" / "decoder_split.json"
+TERRA_CF_GT_PATH = IN_VIVO_DIR / "terra_pfish" / "counterfactual_ground_truth.npz"
+# fixed reference seed for everything EXCEPT decoder training (tokenization jitter, the 5 random
+# cancer-cell draws for the random baseline) -- matches in_vivo.ipynb's own `SEED=0`, so these stay
+# identical across every seed in the multi-seed loop, per the request that only decoder training vary.
+TERRA_BASE_SEED = 0
+TERRA_SEQ_LEN_CELL = 256
+TERRA_CLUSTER_SPACING = 10_000.0
+TERRA_JITTER = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +289,7 @@ def run_seed_cellina(adata_path, seed, variant, work_dir, device, save_mean,
                                   domains_key="context", layer="counts",
                                   spatial_connectivities_key="spatial_connectivities")
         model = CellinaGCN(adata, n_latent=n_latent, use_observed_lib_size=True,
-                            condition_on_intrinsic=False, classifier_lambda=1.0,
+                            classifier_lambda=1.0,
                             discriminator_lambda=1.0, link_prediction_weight=1.0,
                             n_layers=2, convolution_type="gat", gene_likelihood="nb")
 
@@ -259,7 +297,7 @@ def run_seed_cellina(adata_path, seed, variant, work_dir, device, save_mean,
         max_epochs=max_epochs, batch_size=batch_size, check_val_every_n_epoch=1,
         early_stopping=True, enable_checkpointing=True, early_stopping_patience=10,
         early_stopping_monitor="vae_loss_validation",
-        accelerator=("gpu" if device == "cuda" else "cpu"), devices=([0] if device == "cuda" else 1),
+        accelerator=("gpu" if device == "cuda" else "cpu"), devices=([1] if device == "cuda" else 1),
         datasplitter_kwargs={"external_indexing": [train_idx, val_idx, idx_target]},
         callbacks=[
             SaveCheckpoint(monitor="vae_loss_validation", dirpath=os.path.join(out_dir, "ckpt"),
@@ -500,6 +538,286 @@ def run_seed_spatialprop(adata_path, seed, work_dir, device,
 
 
 # ---------------------------------------------------------------------------
+# terra: everything except decoder training, computed once and shared across
+# every seed (scripts/terra/in_vivo.ipynb sections 0-2, already run, plus the
+# seed-independent parts of section 4: tokenization, the fine-tuned encoder's
+# embeddings, the synthetic KO/random signatures, and the per-condition `s`
+# neighbourhood embeddings). Nothing here touches decoder training.
+# ---------------------------------------------------------------------------
+
+def setup_terra():
+    import shutil as _shutil
+
+    import anndata as ad
+    import h5py
+    import scanpy as sc
+    import scipy.sparse as sp
+
+    sys.path.insert(0, str(TERRA_SCRIPTS_DIR))
+    import common as terra_common
+    from terra import download_pretrained
+    from terra.inference import embed_dataset, harmonize_adata, tokenize_adata
+
+    # pfish_terra.h5ad has an /uns/log1p/base entry written with a "null" IOSpec this anndata
+    # version has no reader for -- harmless scanpy log1p-base marker, not read by anything here.
+    # Teach the registry to decode it as None instead of touching the file (in_vivo.ipynb cell 6).
+    from anndata._io.specs.registry import _REGISTRY, IOSpec
+
+    if (h5py.Dataset, IOSpec("null", "0.1.0")) not in _REGISTRY.read:
+        @_REGISTRY.register_read(h5py.Dataset, IOSpec("null", "0.1.0"))
+        def _read_null(elem, _reader):
+            return None
+
+    def read_var_names(h5ad_path):
+        with h5py.File(h5ad_path, "r") as f:
+            idx = f["var"]["_index"][:]
+        return [g.decode() if isinstance(g, bytes) else g for g in idx]
+
+    genes_500 = read_var_names(PFISH_TERRA)
+    genes_154 = read_var_names(PFISH_FULL)
+
+    model_dir = download_pretrained(TERRA_MODEL_REPO, local_dir=str(TERRA_PRETRAINED_DIR))
+
+    with open(TERRA_SELECTION_PATH) as f:
+        sel = json.load(f)
+    best_epoch = sel["latest_passing_epoch"]
+    assert best_epoch is not None, "no epoch passed the collapse guard -- rerun scripts/terra/in_vivo.ipynb section 2"
+    dec_enc_dir = TERRA_WORK / f"lora_ep{best_epoch}" / "lora_bundle"
+    assert dec_enc_dir.exists(), f"missing {dec_enc_dir} -- rerun scripts/terra/in_vivo.ipynb section 2"
+
+    with open(TERRA_DECODER_SPLIT_PATH) as f:
+        split = json.load(f)
+
+    # --- adata_terra + tok_all: common.tokenize_cached loads from TERRA_TOK_CACHE if it already
+    # exists (it does, from section 2), so this does not retokenize -- just rebuilds the harmonized
+    # adata (cheap I/O + gene mapping) to satisfy tokenize_cached's row-count sanity check ---
+    raw = sc.read_h5ad(str(PFISH_TERRA))
+    raw.obs_names_make_unique()
+    raw.obs["cell_id"] = raw.obs_names.astype(str)
+    raw.obsm["spatial"] = np.asarray(raw.obsm["spatial"], dtype=np.float64) * TERRA_PX_TO_UM
+    if sp.issparse(raw.X):
+        raw.X = raw.X.tocsr()
+    raw.layers["counts"] = raw.X.copy()
+    raw = harmonize_adata(raw, gene_mapping_dict_file_path=f"{model_dir}/ensembl_dictionary.pkl",
+                           gene_occurrence_count_file_path=f"{model_dir}/gene_count_dictionary.pkl")
+    adata_terra = raw
+    tok_all = terra_common.tokenize_cached(adata_terra, str(model_dir), TERRA_TOK_CACHE, nproc=16)
+    del adata_terra, raw
+
+    # embed_cached loads straight from the cached npz (from section 2) if present -- no re-embedding
+    emb, ids = terra_common.embed_cached(tok_all, dec_enc_dir, TERRA_WORK / f"emb_lora_ep{best_epoch}.npz")
+    scemb = np.hstack([np.asarray(emb["cell_emb"]), np.asarray(emb["neighborhood_emb"])]).astype(np.float32)
+
+    # --- 154-gene ground truth aligned to tok_all's cell_id order ---
+    with h5py.File(PFISH_FULL, "r") as f:
+        full_ids = [g.decode() if isinstance(g, bytes) else g for g in f["obs"]["_index"][:]]
+        full_X = f["X"][:]  # (154418, 154) int32 raw counts, columns == genes_154 order
+    full_pos = {c: i for i, c in enumerate(full_ids)}
+    counts_154 = full_X[[full_pos[c] for c in ids]]
+
+    pos_of = {c: i for i, c in enumerate(ids)}
+
+    def to_idx(id_list):
+        return np.array([pos_of[c] for c in id_list if c in pos_of], dtype=np.int64)
+
+    train_idx, val_idx, test_idx = to_idx(split["train_ids"]), to_idx(split["val_ids"]), to_idx(split["test_ids"])
+    print(f"[terra setup] decoder split: train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+
+    # --- decoder training dataset: built ONCE, reused by every seed's terra.training.decode call ---
+    npz_path = TERRA_WORK / "decoder_data_multiseed.npz"
+    pack = {}
+    for name, idx, expr_key in (("train", train_idx, "train_expression"),
+                                 ("val", val_idx, "val_expression"),
+                                 ("test", test_idx, "test_expression_gt")):
+        pack[f"{name}_embeddings"] = scemb[idx]
+        pack[expr_key] = counts_154[idx].astype(np.float32)
+        pack[f"{name}_barcodes"] = np.array([ids[i] for i in idx], dtype=object)
+        pack[f"{name}_slides"] = np.full(len(idx), "pfish_terra", dtype=object)
+    np.savez(npz_path, gene_list=np.array(genes_154, dtype=object), **pack)
+    del pack
+
+    # --- counterfactual ground truth, precomputed by notebooks/in_vivo/make_counterfactual_ground_truth.py ---
+    gt_npz = np.load(TERRA_CF_GT_PATH, allow_pickle=True)
+    assert list(gt_npz["genes_154"]) == genes_154, "counterfactual ground truth is on a different gene order"
+    far_ids_all = list(gt_npz["far_ids"])
+    recon_all = gt_npz["recon"]
+    shared = gt_npz["shared"]
+    mean_shift = gt_npz["mean_shift"]
+    EFF = list(gt_npz["EFF9"])
+    OBS = {ko: gt_npz[f"OBS_{ko}"] for ko in EFF}
+
+    # --- far cells restricted to the harmonized panel; z = unperturbed cell_emb (fixed identity) ---
+    keep = [c in pos_of for c in far_ids_all]
+    far_ids = [c for c, k in zip(far_ids_all, keep) if k]
+    recon_far = recon_all[np.array(keep)]
+    p_recon = recon_far.mean(0)
+    tok_far = tok_all.select([pos_of[c] for c in far_ids])
+    z_emb = embed_dataset(dataset=tok_far, model_folder_path=str(dec_enc_dir),
+                           **dict(terra_common.EMB_KWARGS, num_workers=4))
+    z = np.asarray(z_emb["cell_emb"], dtype=np.float32)
+    print(f"[terra setup] far={len(far_ids)} cells | z (unperturbed cell_emb) {z.shape}")
+
+    # --- 500-gene lognorm KO / random signatures -- fixed TERRA_BASE_SEED, shared across every decoder seed ---
+    adata_terra_full = sc.read_h5ad(str(PFISH_TERRA))
+    ln500 = np.asarray(adata_terra_full.layers["lognorm"])
+    obsT = adata_terra_full.obs
+    is_cancer = (obsT["celltype2"] == "cancer").to_numpy()
+    pert_col = obsT["perturbation"].astype(str).to_numpy()
+    pc = is_cancer & (obsT["n_perturb"].to_numpy() > 0)
+    n_counts500 = obsT["n_counts"].to_numpy()
+
+    def ko_signature(ko):
+        kc = pc & (pert_col == ko)
+        return ln500[kc].mean(0), float(n_counts500[kc].mean())
+
+    rng = np.random.default_rng(TERRA_BASE_SEED)
+    cancer_idx = np.where(is_cancer)[0]
+    random_sigs = [(ln500[draw].mean(0), float(n_counts500[draw].mean()))
+                    for draw in (rng.choice(cancer_idx, 300, replace=False) for _ in range(N_RANDOM))]
+    del adata_terra_full
+
+    SIGNATURES = {ko: ko_signature(ko) for ko in EFF}
+    SIGNATURES.update({f"random_{i}": random_sigs[i] for i in range(N_RANDOM)})
+
+    # --- tokenize one synthetic 11-cell constellation per signature; keep only its own 256-token block ---
+    cluster_n = 11
+    rows_, coords_, obs_names_syn = [], [], []
+    rng_syn = np.random.default_rng(TERRA_BASE_SEED)
+    for ci, (name, (sig, depth)) in enumerate(SIGNATURES.items()):
+        sig_prop = np.expm1(sig)
+        sig_prop = sig_prop / (sig_prop.sum() + 1e-8)
+        synth_counts = np.round(sig_prop * depth).astype(np.int32)
+        center = np.array([ci * TERRA_CLUSTER_SPACING, 0.0])
+        for j in range(cluster_n):
+            rows_.append(synth_counts)
+            coords_.append(center + rng_syn.uniform(-TERRA_JITTER, TERRA_JITTER, size=2))
+            obs_names_syn.append(f"syn_{name}_{j}")
+
+    syn = ad.AnnData(X=np.stack(rows_).astype(np.int32), var=pd.DataFrame(index=genes_500))
+    syn.obs_names = obs_names_syn
+    syn.obs["cell_id"] = syn.obs_names
+    syn.obsm["spatial"] = np.asarray(coords_)
+    syn.layers["counts"] = syn.X.copy()
+    syn_h = harmonize_adata(syn, gene_mapping_dict_file_path=f"{model_dir}/ensembl_dictionary.pkl",
+                             gene_occurrence_count_file_path=f"{model_dir}/gene_count_dictionary.pkl",
+                             min_genes_per_cell=1, min_cells_per_gene=1)
+    tmp_tok = TERRA_WORK / ".scratch_syn_tok_multiseed"
+    _shutil.rmtree(tmp_tok, ignore_errors=True)
+    syn_tok = tokenize_adata(syn_h, str(model_dir), str(tmp_tok), nproc=4)
+    _shutil.rmtree(tmp_tok, ignore_errors=True)
+    syn_raw = syn_tok.with_format(None)
+    syn_ids = [str(c) for c in syn_raw["cell_id"]]
+
+    neigh_block = {}
+    for name in SIGNATURES:
+        pos = syn_ids.index(f"syn_{name}_0")
+        gt_tok = np.asarray(syn_raw["gene_tokens"][pos])[:TERRA_SEQ_LEN_CELL]
+        ge_tok = np.asarray(syn_raw["gene_expr"][pos])[:TERRA_SEQ_LEN_CELL]
+        neigh_block[name] = (gt_tok, ge_tok)
+
+    # --- s (perturbed neighborhood_emb) per condition, computed ONCE and reused for every decoder seed ---
+    def splice_neighbourhood(batch, gt_block, ge_block):
+        tokens = np.asarray(batch["gene_tokens"])
+        expr = np.asarray(batch["gene_expr"], dtype=np.float32)
+        tokens[:, TERRA_SEQ_LEN_CELL:] = np.tile(gt_block, 10)[None, :]
+        expr[:, TERRA_SEQ_LEN_CELL:] = np.tile(ge_block, 10)[None, :]
+        batch["gene_tokens"], batch["gene_expr"] = tokens, expr
+        return batch
+
+    lat_by_condition = {}
+    for name in SIGNATURES:
+        gt_block, ge_block = neigh_block[name]
+        fmt = tok_far.format
+        pert_tok = tok_far.with_format(None).map(
+            lambda b: splice_neighbourhood(b, gt_block, ge_block),
+            batched=True, batch_size=256, keep_in_memory=True, load_from_cache_file=False)
+        pert_tok.set_format(type=fmt["type"], columns=fmt["columns"], output_all_columns=fmt["output_all_columns"])
+        s_emb = embed_dataset(dataset=pert_tok, model_folder_path=str(dec_enc_dir),
+                               **dict(terra_common.EMB_KWARGS, num_workers=4))
+        lat_by_condition[name] = np.hstack([z, np.asarray(s_emb["neighborhood_emb"], dtype=np.float32)])
+        print(f"[terra setup] embedded condition '{name}' ({len(lat_by_condition)}/{len(SIGNATURES)})")
+
+    # --- eval-side ground truth: adata_154 (is_holdout, for compute_edistance's PCA fit) + per-KO
+    # real near-T ground-truth expression (NEAR_IDS_{ko}, added to the ground-truth npz for this) ---
+    adata_154 = sc.read_h5ad(str(PFISH_FULL))
+    adata_154.obs["is_holdout"] = adata_154.obs_names.astype(str).isin(set(split["test_ids"]))
+
+    near_expr = {}
+    for ko in EFF:
+        near_ids = [str(c) for c in gt_npz[f"NEAR_IDS_{ko}"]]
+        near_expr[ko] = normalize_counts(full_X[[full_pos[c] for c in near_ids]].astype(np.float64))
+
+    return dict(
+        genes_154=genes_154, best_epoch=best_epoch, npz_path=npz_path,
+        EFF=EFF, OBS=OBS, shared=shared, mean_shift=mean_shift,
+        p_recon=p_recon, lat_by_condition=lat_by_condition,
+        adata_154=adata_154, near_expr=near_expr,
+    )
+
+
+def run_seed_terra(seed, setup, work_dir, device, decoder_epochs=100):
+    import subprocess
+
+    import anndata as ad
+    import torch
+    from terra.training.decode import apply_count_decoder
+
+    out_dir = os.path.join(work_dir, "terra_multiseed", f"seed{seed}")
+    os.makedirs(out_dir, exist_ok=True)
+
+    variant = f"lora_ep{setup['best_epoch']}_seed{seed}"
+    ckpt = os.path.join(out_dir, f"count_decoder_{variant}.pt")
+    metrics_path = os.path.join(out_dir, f"decoder_metrics_{variant}.json")
+
+    cmd = [sys.executable, "-m", "terra.training.decode",
+           "--dataset", str(setup["npz_path"]), "--gene-selection", "all",
+           "--loss-type", "nb_libsize", "--disable-slide-batching",
+           "--epochs", str(decoder_epochs), "--hidden-dim", "512", "--mlp-depth", "2", "--layer-norm",
+           "--early-stop-patience", "5", "--device", ("0" if device == "cuda" else "cpu"),
+           "--seed", str(seed), "--output", ckpt, "--metrics-json", metrics_path]
+    print(f"[terra seed={seed}]", " ".join(cmd))
+    subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
+
+    gene_list = list(torch.load(ckpt, map_location="cpu")["gene_list"])
+    assert gene_list == setup["genes_154"], "decoder gene_list != genes_154"
+    m = json.loads(Path(metrics_path).read_text())
+    assert abs(m["val"]["pearson_mean"] - m["test"]["pearson_mean"]) > 1e-12, (
+        "val.pearson_mean == test.pearson_mean -- suspicious, check the split")
+    print(f"[terra seed={seed}] decoder val pearson {m['val']['pearson_mean']:.4f} | "
+          f"test pearson (held-out perturbed-niche T cells) {m['test']['pearson_mean']:.4f}")
+
+    def decode_condition(name):
+        lat = setup["lat_by_condition"][name]
+        a_ = ad.AnnData(X=np.zeros((len(lat), len(setup["genes_154"])), dtype=np.float32),
+                         var=pd.DataFrame(index=pd.Index(setup["genes_154"])))
+        a_.obsm["decoder_emb"] = lat
+        apply_count_decoder(a_, emb_key="decoder_emb", model_folder_path=None, checkpoint_path=str(ckpt),
+                             decoded_counts_layer_key="decoded", embed_fallback_key="decoder_emb",
+                             device=(0 if device == "cuda" else "cpu"))
+        pr = normalize_counts(np.asarray(a_.layers["decoded"]))
+        return lfc(pr.mean(0), setup["p_recon"]), pr
+
+    REAL, COUNTERFACTUALS = {}, {}
+    for ko in setup["EFF"]:
+        REAL[ko], COUNTERFACTUALS[ko] = decode_condition(ko)
+
+    rand_lfcs, cf_random = [], []
+    for i in range(N_RANDOM):
+        r_lfc, r_cf = decode_condition(f"random_{i}")
+        rand_lfcs.append(r_lfc)
+        cf_random.append(r_cf)
+
+    gt = dict(OBS=setup["OBS"], shared=setup["shared"], mean_shift=setup["mean_shift"], NEAR_EXPR=setup["near_expr"])
+    baseline_prefix = f"terra-lora-ep{setup['best_epoch']}"
+    rows = baseline_rows(setup["adata_154"], gt, REAL, COUNTERFACTUALS, baseline_name=baseline_prefix)
+    rows += random_baseline_rows(setup["adata_154"], gt, rand_lfcs, cf_random, baseline_name=f"{baseline_prefix}-random")
+    for r in rows:
+        r["seed"] = seed
+        r["model"] = "terra"
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -507,7 +825,9 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", required=True, choices=MODEL_CHOICES)
     p.add_argument("--num_seeds", type=int, required=True)
-    p.add_argument("--adata_path", required=True)
+    p.add_argument("--adata_path", default=None,
+                    help="required for cellina/cellina-gat/spatialprop; unused (and must be omitted) "
+                         "for terra, whose inputs are fixed paths tied to its fine-tuned encoder")
     p.add_argument("--seed_start", type=int, default=0)
     p.add_argument("--out_dir", default=str(REPO_ROOT / "results"))
     p.add_argument("--work_dir", default=str(IN_VIVO_DIR),
@@ -515,7 +835,13 @@ def parse_args():
     p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     p.add_argument("--overwrite", action="store_true",
                     help="rerun seeds that already have rows in the output CSV (default: skip them)")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.model == "terra":
+        if args.adata_path is not None:
+            p.error("--adata_path is not used by --model terra (its inputs are fixed)")
+    elif args.adata_path is None:
+        p.error(f"--adata_path is required for --model {args.model}")
+    return args
 
 
 def main():
@@ -533,6 +859,8 @@ def main():
     save_mean = args.model == "cellina"
     seeds = range(args.seed_start, args.seed_start + args.num_seeds)
 
+    terra_setup = setup_terra() if args.model == "terra" and any(s not in done_seeds for s in seeds) else None
+
     for seed in seeds:
         if seed in done_seeds:
             print(f"seed={seed} already in {csv_path} -- skipping (pass --overwrite to rerun)")
@@ -541,8 +869,10 @@ def main():
         if args.model in ("cellina", "cellina-gat"):
             variant = "base" if args.model == "cellina" else "GAT"
             rows = run_seed_cellina(args.adata_path, seed, variant, args.work_dir, device, save_mean)
-        else:
+        elif args.model == "spatialprop":
             rows = run_seed_spatialprop(args.adata_path, seed, args.work_dir, device)
+        else:
+            rows = run_seed_terra(seed, terra_setup, args.work_dir, device)
 
         df = pd.DataFrame(rows)
         write_header = not os.path.exists(csv_path)
