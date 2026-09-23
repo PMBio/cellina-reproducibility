@@ -224,4 +224,7 @@ spatialprop/output/
 output/
 notebooks/neighb_perts/results/
 *.npz
+# local data root (cluster runs); see scripts/terra/slurm/README.md
+data/
 pretrained/
+notebooks/in_vivo/terra_pfish/

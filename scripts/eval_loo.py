@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
 
 from scipy.stats import pearsonr, spearmanr
 
@@ -44,10 +44,14 @@ def parse_args():
     p.add_argument("--dataset_name", required=True, choices=["crc", "merfish"])
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
-    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen", "concert"]) 
+    p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen", "concert", "terra"])
     p.add_argument("--model_name", required=True)
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")
+    p.add_argument("--log_norm_x", action='store_true',
+                   help="Set adata.X = log1p(CP10K counts) before the metrics, as cellina_node_pert.ipynb does for "
+                        "model_class 'cellina'. Only affects the PCA fit inside edistance_pca(_log). "
+                        "TODO(Moeed): please verify this reproduces the notebook's edistance_pca columns.")
     return p.parse_args()
 
 
@@ -118,6 +122,7 @@ def main():
     model_name = args.model_name
     use_recon = args.use_recon
     use_cf = args.use_cf
+    log_norm_x = args.log_norm_x
     dataset_name = args.dataset_name.lower()
     out_dir = f'{OUT_DIR_BASE_PATH}/{dataset_name}/correlations'
 
@@ -174,6 +179,11 @@ def main():
     recon_path = os.path.join(base_dir, recon_fname)    
     recon, latents = None, None
     adata_full = adata.copy()
+    if log_norm_x:
+        # mirrors notebooks/loo_benchmarks/cellina_node_pert.ipynb (model_class == 'cellina' branch)
+        adata_full.X = adata_full.layers['counts'].copy()
+        sc.pp.normalize_total(adata_full, target_sum=COUNTS_PER_K)
+        sc.pp.log1p(adata_full)
     if model_class != 'baseline':
         recon, latents = load_model_predicted(recon_path, model_class)
         adata.uns['recon_x'] = recon

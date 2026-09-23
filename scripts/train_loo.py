@@ -25,7 +25,7 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
 
 from pprint import pprint
 
