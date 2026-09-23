@@ -89,11 +89,14 @@ OBS = {}
 LN_SIG = {}          # ko -> mean lognorm profile of that KO's cancer cells (the "sig" insert() uses)
 DEPTH = {}           # ko -> mean real n_counts of that KO's cancer cells (for scaling the synthetic cell)
 N_KC = {}
+NEAR = {}            # ko -> exclusive near-KO-T indices (held-out targets; E-distance ground truth, cell 17's NEAR_EXPR)
 for ko in EFF9:
     kc = pc & (pert == ko)
     near = np.asarray(conn.dot(kc.astype(float))).ravel() > 0
     noth = np.asarray(conn.dot((pc & (pert != ko)).astype(float))).ravel() > 0
     t = np.where(uT & near & ~noth)[0]
+    assert np.isin(t, idx_target).all(), f"{ko}: near-KO T cells outside the held-out idx_target"
+    NEAR[ko] = t
     OBS[ko] = lfc(pn(t), pn(match(t, far)))
     LN_SIG[ko] = ln[kc].mean(0)
     DEPTH[ko] = float(nc[kc].mean())
@@ -103,7 +106,7 @@ shared = np.mean([OBS[k] for k in EFF9], axis=0)
 
 print("far:", len(far), "| per-KO exclusive-near-T + signature computed for:", EFF9)
 for ko in EFF9:
-    print(f"  {ko}: n_kc={N_KC[ko]} depth={DEPTH[ko]:.1f}")
+    print(f"  {ko}: n_kc={N_KC[ko]} n_near={len(NEAR[ko])} depth={DEPTH[ko]:.1f}")
 
 # --- save everything the terra notebook needs, keyed by cell_id (not positional index) ---
 obs_names = adata.obs_names.astype(str).to_numpy()
@@ -118,11 +121,12 @@ out = {
 for ko in EFF9:
     out[f"OBS_{ko}"] = OBS[ko].astype(np.float32)
     out[f"LN_SIG_{ko}"] = LN_SIG[ko].astype(np.float32)
+    out[f"NEAR_IDS_{ko}"] = obs_names[NEAR[ko]]
 out_path = os.path.join(_HERE, "terra_pfish", "counterfactual_ground_truth.npz")
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 np.savez(out_path, **out)
 
-meta = {"EFF9": EFF9, "depth": DEPTH, "n_kc": N_KC, "n_far": int(len(far)), "seed": seed,
+meta = {"EFF9": EFF9, "depth": DEPTH, "n_kc": N_KC, "n_near": {k: int(len(v)) for k, v in NEAR.items()}, "n_far": int(len(far)), "seed": seed,
         "bandwidth": bw, "max_neighbours": mn, "h5": H5}
 with open(os.path.join(_HERE, "terra_pfish", "counterfactual_ground_truth.meta.json"), "w") as f:
     json.dump(meta, f, indent=2)
