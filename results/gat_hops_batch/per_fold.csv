@@ -1,0 +1,91 @@
+arm,sid,ct,dom,pearson,direction_match_k,edistance_pca_log,rmse_lfc
+h1-b256,C57BL6J-2.036,GABAergic neuron,Fiber_tracts,0.9149,0.5800,9.5620,3.2243
+h1-b256,C57BL6J-2.036,GABAergic neuron,Isocortex,0.9876,0.7600,9.3679,1.5058
+h1-b256,C57BL6J-2.036,astrocyte,Fiber_tracts,0.4928,0.3600,6.1309,10.7845
+h1-b256,C57BL6J-2.036,astrocyte,Isocortex,0.9152,0.6400,7.6882,2.6074
+h1-b256,C57BL6J-2.036,endothelial cell,Fiber_tracts,0.9925,0.1400,6.7985,17.0496
+h1-b256,C57BL6J-2.036,endothelial cell,Isocortex,0.9369,0.6800,8.2611,4.2239
+h1-b256,C57BL6J-2.036,glutamatergic neuron,Fiber_tracts,0.8336,0.3600,12.7948,2.9540
+h1-b256,C57BL6J-2.036,glutamatergic neuron,Isocortex,0.9836,0.6800,7.6655,1.5975
+h1-b256,C57BL6J-2.036,oligodendrocyte,Fiber_tracts,0.6156,0.1800,7.3569,4.2765
+h1-b256,C57BL6J-2.036,oligodendrocyte,Isocortex,0.5230,0.4200,10.3534,9.9621
+h1-b256,C57BL6J-2.039,GABAergic neuron,Fiber_tracts,0.7757,0.2800,8.8111,3.4271
+h1-b256,C57BL6J-2.039,GABAergic neuron,Isocortex,0.9735,0.5600,8.4313,1.5524
+h1-b256,C57BL6J-2.039,astrocyte,Fiber_tracts,0.7993,0.6000,6.8873,3.8030
+h1-b256,C57BL6J-2.039,astrocyte,Isocortex,0.9075,0.6200,7.4602,2.7830
+h1-b256,C57BL6J-2.039,endothelial cell,Fiber_tracts,0.9906,0.1000,7.2522,16.6897
+h1-b256,C57BL6J-2.039,endothelial cell,Isocortex,0.8828,0.6800,7.4000,4.9509
+h1-b256,C57BL6J-2.039,glutamatergic neuron,Fiber_tracts,0.8519,0.4400,10.3900,2.0534
+h1-b256,C57BL6J-2.039,glutamatergic neuron,Isocortex,0.9855,0.7800,7.3814,1.3402
+h1-b256,C57BL6J-2.039,oligodendrocyte,Fiber_tracts,0.7378,0.6800,7.0005,2.7198
+h1-b256,C57BL6J-2.039,oligodendrocyte,Isocortex,0.6230,0.5400,8.7755,9.1078
+h1-b256,C57BL6J-2.041,GABAergic neuron,Fiber_tracts,0.7375,0.3400,8.1327,14.0003
+h1-b256,C57BL6J-2.041,GABAergic neuron,Isocortex,0.9818,0.6800,9.3177,1.5517
+h1-b256,C57BL6J-2.041,astrocyte,Fiber_tracts,0.5930,0.5600,6.4308,7.5610
+h1-b256,C57BL6J-2.041,astrocyte,Isocortex,0.8773,0.7200,8.9966,3.9111
+h1-b256,C57BL6J-2.041,endothelial cell,Fiber_tracts,0.9927,0.1200,7.9131,17.3758
+h1-b256,C57BL6J-2.041,endothelial cell,Isocortex,0.9405,0.7800,9.1820,6.5416
+h1-b256,C57BL6J-2.041,glutamatergic neuron,Fiber_tracts,0.8963,0.5200,10.5854,1.9112
+h1-b256,C57BL6J-2.041,glutamatergic neuron,Isocortex,0.9668,0.7200,8.6704,2.0753
+h1-b256,C57BL6J-2.041,oligodendrocyte,Fiber_tracts,0.7351,0.3800,7.5512,4.1449
+h1-b256,C57BL6J-2.041,oligodendrocyte,Isocortex,0.4666,0.2000,9.6458,15.5312
+h1-b512,C57BL6J-2.036,GABAergic neuron,Fiber_tracts,0.9195,0.6200,9.2824,3.1221
+h1-b512,C57BL6J-2.036,GABAergic neuron,Isocortex,0.9869,0.7200,10.0038,1.5589
+h1-b512,C57BL6J-2.036,astrocyte,Fiber_tracts,0.5216,0.2800,6.5022,10.9831
+h1-b512,C57BL6J-2.036,astrocyte,Isocortex,0.9146,0.6400,8.2926,2.6608
+h1-b512,C57BL6J-2.036,endothelial cell,Fiber_tracts,0.9931,0.1400,7.0188,17.0243
+h1-b512,C57BL6J-2.036,endothelial cell,Isocortex,0.9343,0.6800,7.9907,4.3364
+h1-b512,C57BL6J-2.036,glutamatergic neuron,Fiber_tracts,0.8490,0.4000,12.3454,2.8635
+h1-b512,C57BL6J-2.036,glutamatergic neuron,Isocortex,0.9717,0.7200,8.2992,1.8795
+h1-b512,C57BL6J-2.036,oligodendrocyte,Fiber_tracts,0.6172,0.3800,7.1563,3.9015
+h1-b512,C57BL6J-2.036,oligodendrocyte,Isocortex,0.5175,0.5000,7.5461,9.6161
+h1-b512,C57BL6J-2.039,GABAergic neuron,Fiber_tracts,0.7964,0.3600,8.3617,3.2627
+h1-b512,C57BL6J-2.039,GABAergic neuron,Isocortex,0.9677,0.5600,7.9710,1.7170
+h1-b512,C57BL6J-2.039,astrocyte,Fiber_tracts,0.7953,0.5400,6.7653,3.7951
+h1-b512,C57BL6J-2.039,astrocyte,Isocortex,0.9063,0.7000,6.1913,2.5749
+h1-b512,C57BL6J-2.039,endothelial cell,Fiber_tracts,0.9878,0.1200,7.6676,16.5831
+h1-b512,C57BL6J-2.039,endothelial cell,Isocortex,0.8836,0.6800,7.3838,4.9000
+h1-b512,C57BL6J-2.039,glutamatergic neuron,Fiber_tracts,0.8177,0.3600,9.8532,2.1042
+h1-b512,C57BL6J-2.039,glutamatergic neuron,Isocortex,0.9730,0.7000,7.9747,1.5967
+h1-b512,C57BL6J-2.039,oligodendrocyte,Fiber_tracts,0.7339,0.6600,6.0786,2.8646
+h1-b512,C57BL6J-2.039,oligodendrocyte,Isocortex,0.5911,0.6000,6.7306,9.1590
+h1-b512,C57BL6J-2.041,GABAergic neuron,Fiber_tracts,0.7425,0.3400,8.8682,13.9835
+h1-b512,C57BL6J-2.041,GABAergic neuron,Isocortex,0.9736,0.6400,10.4964,1.8304
+h1-b512,C57BL6J-2.041,astrocyte,Fiber_tracts,0.5695,0.4000,6.9460,7.8207
+h1-b512,C57BL6J-2.041,astrocyte,Isocortex,0.8717,0.6000,8.8118,3.9796
+h1-b512,C57BL6J-2.041,endothelial cell,Fiber_tracts,0.9922,0.1200,8.2207,17.3656
+h1-b512,C57BL6J-2.041,endothelial cell,Isocortex,0.9386,0.7800,8.7104,6.4518
+h1-b512,C57BL6J-2.041,glutamatergic neuron,Fiber_tracts,0.9169,0.5400,9.2100,1.6897
+h1-b512,C57BL6J-2.041,glutamatergic neuron,Isocortex,0.9799,0.7800,7.5112,1.5800
+h1-b512,C57BL6J-2.041,oligodendrocyte,Fiber_tracts,0.7496,0.3800,8.1255,4.2380
+h1-b512,C57BL6J-2.041,oligodendrocyte,Isocortex,0.4711,0.2200,7.6380,15.3577
+h3-b256,C57BL6J-2.036,GABAergic neuron,Fiber_tracts,0.9128,0.6200,9.6433,3.3085
+h3-b256,C57BL6J-2.036,GABAergic neuron,Isocortex,0.9860,0.6800,9.8559,1.6266
+h3-b256,C57BL6J-2.036,astrocyte,Fiber_tracts,0.5045,0.4000,5.6760,10.5542
+h3-b256,C57BL6J-2.036,astrocyte,Isocortex,0.9231,0.6400,7.6853,2.4921
+h3-b256,C57BL6J-2.036,endothelial cell,Fiber_tracts,0.9922,0.1400,6.6693,16.9211
+h3-b256,C57BL6J-2.036,endothelial cell,Isocortex,0.9351,0.7200,7.9822,4.2489
+h3-b256,C57BL6J-2.036,glutamatergic neuron,Fiber_tracts,0.8902,0.4600,10.4696,2.6261
+h3-b256,C57BL6J-2.036,glutamatergic neuron,Isocortex,0.9814,0.7200,7.4376,1.5598
+h3-b256,C57BL6J-2.036,oligodendrocyte,Fiber_tracts,0.6176,0.2600,7.2779,4.1053
+h3-b256,C57BL6J-2.036,oligodendrocyte,Isocortex,0.5389,0.5000,9.0422,9.6343
+h3-b256,C57BL6J-2.039,GABAergic neuron,Fiber_tracts,0.7928,0.3400,8.8425,3.2980
+h3-b256,C57BL6J-2.039,GABAergic neuron,Isocortex,0.9768,0.6000,7.8823,1.3759
+h3-b256,C57BL6J-2.039,astrocyte,Fiber_tracts,0.8013,0.5000,7.0029,3.8845
+h3-b256,C57BL6J-2.039,astrocyte,Isocortex,0.9020,0.6400,7.8327,2.7594
+h3-b256,C57BL6J-2.039,endothelial cell,Fiber_tracts,0.9904,0.1200,7.8959,16.3091
+h3-b256,C57BL6J-2.039,endothelial cell,Isocortex,0.8884,0.7200,7.6236,4.7441
+h3-b256,C57BL6J-2.039,glutamatergic neuron,Fiber_tracts,0.8198,0.4000,9.8204,2.1962
+h3-b256,C57BL6J-2.039,glutamatergic neuron,Isocortex,0.9843,0.6800,7.5552,1.7947
+h3-b256,C57BL6J-2.039,oligodendrocyte,Fiber_tracts,0.7496,0.5200,6.9480,2.9866
+h3-b256,C57BL6J-2.039,oligodendrocyte,Isocortex,0.6057,0.5800,7.5927,9.1276
+h3-b256,C57BL6J-2.041,GABAergic neuron,Fiber_tracts,0.7336,0.3400,7.6758,14.0594
+h3-b256,C57BL6J-2.041,GABAergic neuron,Isocortex,0.9784,0.6000,9.5643,1.6714
+h3-b256,C57BL6J-2.041,astrocyte,Fiber_tracts,0.5868,0.5400,6.3643,7.5724
+h3-b256,C57BL6J-2.041,astrocyte,Isocortex,0.8810,0.7000,9.2815,3.7785
+h3-b256,C57BL6J-2.041,endothelial cell,Fiber_tracts,0.9940,0.1200,7.9223,17.4655
+h3-b256,C57BL6J-2.041,endothelial cell,Isocortex,0.9329,0.7800,9.2455,6.5530
+h3-b256,C57BL6J-2.041,glutamatergic neuron,Fiber_tracts,0.9326,0.5800,9.9497,1.7488
+h3-b256,C57BL6J-2.041,glutamatergic neuron,Isocortex,0.9818,0.7400,7.9935,1.7754
+h3-b256,C57BL6J-2.041,oligodendrocyte,Fiber_tracts,0.7254,0.3800,8.1414,4.3297
+h3-b256,C57BL6J-2.041,oligodendrocyte,Isocortex,0.4837,0.2400,9.7293,15.4318

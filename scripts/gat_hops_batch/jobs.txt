@@ -1,0 +1,5 @@
+h1lit-b256-pyg	C57BL6J-2.036	glutamatergic neuron
+h1lit-b256-pyg	C57BL6J-2.036	oligodendrocyte
+h1lit-b256-pyg	C57BL6J-2.036	astrocyte
+h1lit-b256-pyg	C57BL6J-2.036	GABAergic neuron
+h1lit-b256-pyg	C57BL6J-2.036	endothelial cell
