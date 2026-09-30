@@ -1,0 +1,13 @@
+{
+  "dataset": "merfish",
+  "sid": "C57BL6J-2.039",
+  "cell_type": "astrocyte",
+  "model_name": "cellina112_1",
+  "train_mode": "full",
+  "train_wall_seconds": 142,
+  "max_rss_gib": 4.573,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "slurm_job_id": "62529241_3",
+  "node": "gpu36",
+  "n_metric_json": 2
+}

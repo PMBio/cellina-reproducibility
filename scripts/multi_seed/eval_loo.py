@@ -18,7 +18,8 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(_REPO_ROOT, "data"))  # env-driven; defaults to <repo>/data
 
 from scipy.stats import pearsonr, spearmanr
 
@@ -45,7 +46,11 @@ def parse_args():
     p.add_argument("--adata_path", required=True)
     p.add_argument("--holdout_celltype", required=True)
     p.add_argument("--model_class", required=True, choices=["cellina", "cpa", "cellina_graph", "baseline", "scgen", "concert"]) 
-    p.add_argument("--model_name", required=True)
+    p.add_argument("--model_name", required=True,
+                   help="Basename of the prediction h5ads to evaluate, i.e. the value of\n"
+                        "train_loo.py's --model_name plus its _{seed} suffix and any\n"
+                        "--model_name_suffix (e.g. 'cellina-W_0-cfraw'). It is reused\n"
+                        "verbatim in the output JSON name (with '_' replaced by '-').")
     p.add_argument("--use_recon", action='store_true', help="Use reconstructions for DE (default False)")
     p.add_argument("--use_cf", action='store_true', help="Use counterfactuals for DE (default False)")
     return p.parse_args()
@@ -157,7 +162,7 @@ def main():
                                                  seed=DEFAULT_SEED)
     
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
-    step_size_px = 0.12028 if dataset_name == 'crc' else 0.109
+    step_size_px = 0.12028 if dataset_name == 'crc' else 1  # matches scripts/train_loo.py (main)
     adata = preprocess_spatial_features(adata, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=test_idx)
 
     # build expected paths for recon and counterfactual

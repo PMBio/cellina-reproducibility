@@ -1,0 +1,13 @@
+{
+  "dataset": "crc",
+  "sid": "crc_232",
+  "cell_type": "Endothelial",
+  "model_name": "cellina112_0",
+  "train_mode": "full",
+  "train_wall_seconds": 325,
+  "max_rss_gib": 14.003,
+  "gpu_name": "NVIDIA A100-PCIE-40GB",
+  "slurm_job_id": "62514516_15",
+  "node": "gpu27",
+  "n_metric_json": 1
+}

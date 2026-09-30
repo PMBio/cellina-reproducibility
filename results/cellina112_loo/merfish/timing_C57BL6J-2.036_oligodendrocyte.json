@@ -1,0 +1,13 @@
+{
+  "dataset": "merfish",
+  "sid": "C57BL6J-2.036",
+  "cell_type": "oligodendrocyte",
+  "model_name": "cellina112_2",
+  "train_mode": "full",
+  "train_wall_seconds": 122,
+  "max_rss_gib": 4.377,
+  "gpu_name": "NVIDIA A100-PCIE-40GB",
+  "slurm_job_id": "62529242_2",
+  "node": "gpu28",
+  "n_metric_json": 2
+}
