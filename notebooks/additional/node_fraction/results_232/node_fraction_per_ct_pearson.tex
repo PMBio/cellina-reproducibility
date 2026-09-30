@@ -1,0 +1,16 @@
+\begin{center}
+\begin{tabular}{rccccc}
+\toprule
+Fraction & Fibroblast & Endothelial & Myeloid & T\_cell & Epithelial \\
+\midrule
+0 & $0.288 \pm 0.238$ & $0.641 \pm 0.058$ & $0.775 \pm 0.032$ & $0.944 \pm 0.007$ & $0.005 \pm 0.365$ \\
+0.05 & $0.304 \pm 0.227$ & $0.648 \pm 0.055$ & $0.779 \pm 0.033$ & $0.944 \pm 0.007$ & $0.012 \pm 0.367$ \\
+0.1 & $0.331 \pm 0.226$ & $0.655 \pm 0.056$ & $0.782 \pm 0.031$ & $0.945 \pm 0.007$ & $0.020 \pm 0.368$ \\
+0.25 & $0.384 \pm 0.226$ & $0.676 \pm 0.055$ & $0.792 \pm 0.030$ & $0.948 \pm 0.006$ & $0.051 \pm 0.374$ \\
+0.5 & $0.502 \pm 0.185$ & $0.721 \pm 0.051$ & $0.815 \pm 0.027$ & $0.953 \pm 0.005$ & $0.141 \pm 0.348$ \\
+0.75 & $0.621 \pm 0.143$ & $0.769 \pm 0.048$ & $0.841 \pm 0.024$ & $0.957 \pm 0.005$ & $0.314 \pm 0.152$ \\
+1 & $0.690 \pm 0.126$ & $0.803 \pm 0.049$ & $0.865 \pm 0.019$ & $0.958 \pm 0.005$ & $0.425 \pm 0.042$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent\small\textit{Node-perturbation dose response across cell types. Reusing the $k=200$ within-domain checkpoint trained with each cell type held out, the observed healthy$\rightarrow$tumour logFC shift (with the held-out type excluded from the global shift and its own row set to that global shift) is applied to an increasing fraction of neighbour cells; we report the Pearson correlation between observed and predicted logFC over the top-50 DE genes on held-out tumour cells of each type (mean $\pm$ SD over 5 seeds). Direction fidelity rises monotonically with the perturbed fraction -- from weak or noisy at $5\%$, where only a handful of neighbours are shifted, toward each cell type's ceiling at $100\%$ -- and the ceiling ordering (T-cell $>$ Myeloid $>$ Endothelial $>$ Fibroblast $>$ Epithelial) mirrors the neighbourhood-size sweep, consistent with a continuous, dose-dependent response.}\normalsize

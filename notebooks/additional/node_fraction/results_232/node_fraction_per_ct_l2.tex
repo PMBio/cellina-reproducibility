@@ -1,0 +1,16 @@
+\begin{center}
+\begin{tabular}{rccccc}
+\toprule
+Fraction & Fibroblast & Endothelial & Myeloid & T\_cell & Epithelial \\
+\midrule
+0 & $0.17 \pm 0.02$ & $0.19 \pm 0.05$ & $0.27 \pm 0.06$ & $0.30 \pm 0.03$ & $0.07 \pm 0.01$ \\
+0.05 & $0.28 \pm 0.03$ & $0.34 \pm 0.10$ & $0.36 \pm 0.11$ & $0.41 \pm 0.08$ & $0.17 \pm 0.03$ \\
+0.1 & $0.46 \pm 0.10$ & $0.57 \pm 0.08$ & $0.51 \pm 0.13$ & $0.60 \pm 0.09$ & $0.33 \pm 0.09$ \\
+0.25 & $1.11 \pm 0.15$ & $1.42 \pm 0.21$ & $1.43 \pm 0.16$ & $1.53 \pm 0.18$ & $0.89 \pm 0.24$ \\
+0.5 & $2.63 \pm 0.60$ & $3.27 \pm 0.57$ & $3.27 \pm 0.34$ & $3.69 \pm 0.64$ & $2.45 \pm 0.70$ \\
+0.75 & $4.48 \pm 0.84$ & $5.82 \pm 1.13$ & $5.76 \pm 0.56$ & $6.16 \pm 0.97$ & $5.13 \pm 1.92$ \\
+1 & $6.08 \pm 0.85$ & $8.29 \pm 1.46$ & $8.42 \pm 0.72$ & $8.23 \pm 1.12$ & $7.80 \pm 3.36$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent\small\textit{Node-perturbation dose response across cell types. Reusing the $k=200$ within-domain checkpoint trained with each cell type held out, the observed healthy$\rightarrow$tumour logFC shift (with the held-out type excluded from the global shift and its own row set to that global shift) is applied to an increasing fraction of neighbour cells; we report the $L_2$ norm of the model's induced logFC shift over all genes, relative to the unperturbed prediction for the same cells (mean $\pm$ SD over 5 seeds). The magnitude grows monotonically with the perturbed fraction for every cell type, showing that Cellina models node perturbations continuously.}\normalsize

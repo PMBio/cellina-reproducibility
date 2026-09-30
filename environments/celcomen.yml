@@ -1,0 +1,42 @@
+# Conda environment for the Celcomen comparison notebook
+# (notebooks/additional/04_celcomen_comparison.ipynb, Section B).
+#
+# Celcomen (Megas et al., 2025; https://github.com/Teichlab/celcomen) is a
+# PyTorch-Geometric model and is intentionally kept in its OWN environment,
+# separate from `cellina.yml`: it pulls in torch_geometric and does not share
+# the scvi-tools stack that cellina uses. Section A (cellina node perturbation)
+# runs in the `cellina` env; Section B (celcomen) runs in this env; Section C
+# (scoring) runs in either (it only needs numpy/pandas/scipy/anndata/scanpy).
+#
+# Create with:
+#   conda env create -f environments/celcomen.yml
+# or reproduce the exact build used here:
+#   conda create -n celcomen python=3.10 -y
+#   conda run -n celcomen pip install torch torch_geometric scikit-learn \
+#       scanpy tqdm anndata ipykernel git+https://github.com/Teichlab/celcomen.git
+name: celcomen
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # Core celcomen deps (from its pyproject.toml).
+      # NOTE: plain `pip install torch` pulls the newest CUDA build, which may not
+      # match your GPU driver. To match the rest of this repo's stack (CUDA 12.1),
+      # install torch from the cu121 index first, e.g.:
+      #   pip install torch --index-url https://download.pytorch.org/whl/cu121
+      # then the rest. `torch.cuda.is_available()` should report True on the GPU node.
+      - torch
+      - torch_geometric
+      - scikit-learn
+      - scanpy
+      - tqdm
+      - anndata
+      # Notebook / scoring extras.
+      - ipykernel
+      - pandas
+      - scipy
+      # Celcomen itself — installed from git to get >=0.0.2 (includes the
+      # `simcomen` simulation module used by the node-perturbation adapter).
+      - git+https://github.com/Teichlab/celcomen.git
