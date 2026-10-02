@@ -22,7 +22,7 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
@@ -31,7 +31,7 @@ PY = sys.executable
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
-DATASET_NAME = "merfish"  # or "merfish"
+DATASET_NAME = "crc"  # or "merfish"
 
 CRC_PATHS = [
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
@@ -43,11 +43,11 @@ CRC_PATHS = [
 ]
 
 CRC_HOLDOUTS = [
-    "Endothelial",
-    "Epithelial",
+    #"Endothelial",
+    #"Epithelial",
     "Fibroblast",
-    "Myeloid",
-    "T_cell",
+    #"Myeloid",
+    #"T_cell",
 ]
 
 MERFISH_PATHS = [
@@ -76,7 +76,7 @@ MODELS = [
     #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
     #{"class": "cpa", "name": "cpa", "extra_args": "--inference_only"},
     #{"class": "cellina_graph", "name": "cellina-graph"},
-    {"class": "concert", "name": "concert"},
+    #{"class": "concert", "name": "concert"},
     #{"class": "scgen", "name": "scgen"},
     #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
     #{"class": "cellina", "name": "cellina-mmd", "extra_args": "--inference_only"},
@@ -84,6 +84,9 @@ MODELS = [
     #{"class": "cellina", "name": "cellina-W"},
     #{"class": "cellina", "name": "cellina-ablated-W"},
     #{"class": "cellina_graph", "name": "cellina-graph-W"},
+    {"class": "cellina", "name": "cellina-cr", "extra_args": "--inference_only --perturbation node"},
+    #{"class": "cellina", "name": "cellina-cr", "extra_args": "--perturbation node"},
+    #{"class": "cellina_graph", "name": "cellina-graph-cr", "extra_args": "--perturbation node"},
 ]
 
 

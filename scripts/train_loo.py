@@ -25,7 +25,7 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
 
 from pprint import pprint
 
@@ -35,6 +35,8 @@ DEFAULT_N_NEIGHBORS = 50
 DEFAULT_BATCH_SIZE = 512
 DEFAULT_SEED = 0
 COUNTS_PER_K = 1e4
+N_PERT_GENES = 200  # top |logFC| genes perturbed per cell type in node perturbation
+NODE_PERT_MODEL_CLASSES = ['cellina', 'cellina_graph']
 DEFAULT_LABELS_KEY = 'coarse_type'
 DEFAULT_DOMAINS_KEY = 'typ'
 DEFAULT_BATCH_KEY = 'sid'
@@ -48,9 +50,9 @@ from utils import set_seed
 
 # Import configs
 sys.path.append('./scripts')
-from configs.cellina_config import MODEL_ARGS as CELLINA_MODEL_ARGS, TRAIN_ARGS as CELLINA_TRAIN_ARGS, PLAN_KWARGS as CELLINA_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_DO_COUNTERFACTUAL
+from configs.cellina_config import MODEL_ARGS as CELLINA_MODEL_ARGS, TRAIN_ARGS as CELLINA_TRAIN_ARGS, PLAN_KWARGS as CELLINA_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED as CELLINA_N_NEIGHBORS_PER_SEED
 from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_TRAIN_ARGS, PLAN_KWARGS as CPA_PLAN_KWARGS, DO_COUNTERFACTUAL as CPA_DO_COUNTERFACTUAL
-from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED, N_NEIGHBORS_GRAPH
+from configs.cellina_graph_config import MODEL_ARGS as CELLINA_GRAPH_MODEL_ARGS, TRAIN_ARGS as CELLINA_GRAPH_TRAIN_ARGS, PLAN_KWARGS as CELLINA_GRAPH_PLAN_KWARGS, DO_COUNTERFACTUAL as CELLINA_GRAPH_DO_COUNTERFACTUAL, N_NEIGHBORS_PER_SEED as CELLINA_GRAPH_N_NEIGHBORS_PER_SEED, N_NEIGHBORS_GRAPH
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
 from configs.concert_config import MODEL_ARGS as CONCERT_MODEL_ARGS, TRAIN_ARGS as CONCERT_TRAIN_ARGS, PLAN_KWARGS as CONCERT_PLAN_KWARGS, DO_COUNTERFACTUAL as CONCERT_DO_COUNTERFACTUAL
@@ -65,6 +67,10 @@ def parse_args():
     p.add_argument("--model_class", required=True, choices=['cellina', 'cpa', 'cellina_graph', 'concert', 'scgen'], help="one of: cellina, cpa, cellina_graph, concert, scgen")
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
     p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
+    p.add_argument("--perturbation", default='edge', choices=['edge', 'node', 'both'],
+                   help="Counterfactual type. 'edge' (default) swaps the neighbourhood; 'node' perturbs neighbour "
+                        "expression with domain logFCs (cellina / cellina_graph only, loads the trained model - no training); "
+                        "'both' runs edge then node (node skipped for other model classes)")
 
     return p.parse_args()
 
@@ -607,6 +613,7 @@ def run_inference(model,
             
             if 'cellina' in model_class.lower():
                 # "neighbour_indices" are indices of the neighbors of idx_target cells
+                # NOTE: This behaviour changes for GAT, see below
                 conn = adata.obsp["spatial_connectivities_orig"]
                 sub_conn = conn[idx_target]                # rows for target cells
                 neighbor_indices = sub_conn.nonzero()[1]   # all neighbors at once
@@ -618,12 +625,18 @@ def run_inference(model,
                     "indices": idx_control,
                     "batch_size": batch_size,
                     "seed": 0,
-                    "neighbour_indices": neighbor_indices
                 }
                 if model_class.lower() == 'cellina_graph':
-                    args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
+                    args_gex['anchor_donors'] = True
+                    args_gex["neighbour_indices"] = idx_target # These are now anchors
+                    args_gex['exclude_indices'] = np.where(is_holdout_ct.values)[0] # exclude holdout celltype from being assigned as new neighbors
+                    args_gex["n_neighbors"] = CELLINA_GRAPH_N_NEIGHBORS_PER_SEED
+                    args_gex['connectivity_key'] = "spatial_connectivities_orig"
                 else:
-                    args_gex['precomputed'] = False
+                    args_gex['anchor_donors'] = False
+                    args_gex["neighbour_indices"] = neighbor_indices
+                    args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED
+                    
                 
                 cf_counts = model.get_counterfactual_expression(**args_gex)
                 args_latents = args_gex.copy()
@@ -648,6 +661,98 @@ def run_inference(model,
             print(f"Saved {model_class} counterfactuals to {out_cf_path}")
 
     return out_recon_path, out_cf_path
+
+
+def run_node_perturbation(model,
+                          adata,
+                          adata_path,
+                          model_class,
+                          model_name,
+                          holdout_celltype,
+                          batch_size=DEFAULT_BATCH_SIZE,
+                          labels_key=DEFAULT_LABELS_KEY,
+                          domains_key=DEFAULT_DOMAINS_KEY,
+                          control_domains=DEFAULT_CTRL_DOMAINS,
+                          holdout_domains=DEFAULT_HOLDOUT_DOMAINS,
+                          n_pert_genes=N_PERT_GENES):
+    """Node-perturbation counterfactuals for cellina / cellina_graph (mirrors notebooks/loo_benchmarks/cellina_node_pert.ipynb).
+
+    For each holdout domain, every cell type's expression is shifted by its control -> holdout domain logFC
+    (top n_pert_genes genes; the holdout cell type gets the global logFC of all other cell types), and the model
+    predicts the control cells of the holdout cell type given these perturbed neighbours.
+    Saves <out_dir>/{model_name}_node_counterfactual_x_{hd}.h5ad, read by eval_loo.py --perturbation node.
+    """
+    from counterfactual_analysis import get_perturbation_logfc, get_global_perturbation_logfc
+
+    print("Running node perturbation inference and saving outputs...")
+    input_parent = os.path.dirname(adata_path)
+    parent_of_input = os.path.dirname(input_parent)
+    input_basename = os.path.splitext(os.path.basename(adata_path))[0]
+    out_dir = os.path.join(parent_of_input, input_basename, holdout_celltype)
+    os.makedirs(out_dir, exist_ok=True)
+
+    control_domain = control_domains[0]
+    is_holdout_ct = adata.obs[labels_key].astype(str) == holdout_celltype
+    mask_control = adata.obs[domains_key].isin(control_domains) & is_holdout_ct
+    idx_control = np.where(mask_control.values)[0]
+
+    # Perturbations are applied to adata.X: cellina's spatial features are built from log1p(CP10K),
+    # cellina_graph aggregates raw counts inside the GCN
+    adata.X = adata.layers['counts'].copy()
+    if model_class == 'cellina':
+        sc.pp.normalize_total(adata, target_sum=COUNTS_PER_K)
+        sc.pp.log1p(adata)
+
+    out_cf_paths = []
+    for hd in holdout_domains:
+        domain_logfc_df = get_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key)
+        global_logfc_series = get_global_perturbation_logfc(adata, control_domain, hd, labels_key, domains_key, holdout_celltype)
+        domain_logfc_df.loc[holdout_celltype, global_logfc_series.index] = global_logfc_series
+
+        logfc_series_dict = {}
+        for ct in domain_logfc_df.index:
+            s = domain_logfc_df.loc[ct]
+            top_g = s.abs().nlargest(n_pert_genes).index.tolist()
+            logfc_series_dict[ct] = s[top_g]
+
+        if model_class == 'cellina':
+            from cellina import make_neighbor_perturbation
+            make_neighbor_perturbation(adata,
+                                       perturbations=logfc_series_dict,
+                                       groupby=labels_key,
+                                       obsm_key_out='spatial_x_cf',
+                                       base=np.e,
+                                       renormalize=True,
+                                       add_shift=True)
+            cf_counts = model.get_perturbed_expression(adata=adata, indices=idx_control, spatial_obsm_key='spatial_x_cf',
+                                                       batch_size=batch_size, library_size='latent')
+            cf_latents = model.get_perturbed_latents(adata=adata, indices=idx_control, spatial_obsm_key='spatial_x_cf',
+                                                     batch_size=batch_size)
+        else:
+            from cellina import make_perturbed_expression
+            cf_layer_key = f'counts_cf_{hd.lower()}'
+            make_perturbed_expression(adata,
+                                      perturbations=logfc_series_dict,
+                                      groupby=labels_key,
+                                      layer_key=cf_layer_key,
+                                      base=np.e,
+                                      add_shift=False,
+                                      renormalize=True)
+            cf_counts = model.get_perturbed_expression(adata=adata, indices=idx_control, cf_layer=cf_layer_key,
+                                                       batch_size=batch_size, library_size='latent')
+            cf_latents = model.get_perturbed_latents(adata=adata, indices=idx_control, cf_layer=cf_layer_key,
+                                                     batch_size=batch_size)
+
+        out_cf_path = os.path.join(out_dir, f"{model_name}_node_counterfactual_x_{hd}.h5ad")
+        save_recon_adata(adata[idx_control],
+                         X_new=_to_array(cf_counts),
+                         latents=cf_latents,
+                         save_path=out_cf_path)
+        print(f"Saved {model_class} node perturbation counterfactuals to {out_cf_path}")
+        out_cf_paths.append(out_cf_path)
+
+    adata.X = adata.layers['counts'].copy()
+    return out_cf_paths
 
 
 def _load_model(save_dir, model_class, adata, splits=None, model_args=None, batch_key=DEFAULT_BATCH_KEY, labels_key=DEFAULT_LABELS_KEY, domains_key=DEFAULT_DOMAINS_KEY):
@@ -702,7 +807,15 @@ def main():
     dataset_name = args.dataset_name.lower()
     mc = args.model_class.lower()
     model_name = args.model_name
-    inference_only = args.inference_only
+    run_edge = args.perturbation in ['edge', 'both']
+    run_node = args.perturbation in ['node', 'both']
+    if run_node and mc not in NODE_PERT_MODEL_CLASSES:
+        print(f"Warning: node perturbation is only supported for {NODE_PERT_MODEL_CLASSES}, skipping it for model_class '{mc}'")
+        run_node = False
+        if not run_edge:
+            return
+    # node-only perturbation evaluates already trained models
+    inference_only = args.inference_only or not run_edge
     normalize_counts = False    
     sid = os.path.basename(args.adata_path).split('.h5ad')[0]
     
@@ -821,7 +934,9 @@ def main():
 
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
-    out_recon_path = run_inference(model,
+    outputs = {'save_dir': save_dir, 'model_name': model_name}
+    if run_edge:
+        outputs['output_paths'] = run_inference(model,
                                     adata,
                                     args.adata_path,
                                     args.model_class,
@@ -836,13 +951,21 @@ def main():
                                     control_domains=control_domains,
                                     holdout_domains=holdout_domains,
                                     )
+    if run_node:
+        outputs['node_counterfactuals'] = run_node_perturbation(model,
+                                             adata,
+                                             args.adata_path,
+                                             mc,
+                                             model_name,
+                                             args.holdout_celltype,
+                                             batch_size=batch_size,
+                                             labels_key=labels_key,
+                                             domains_key=domains_key,
+                                             control_domains=control_domains,
+                                             holdout_domains=holdout_domains)
 
     print("Done. Outputs:")
-    pprint({
-        'save_dir': save_dir,
-        'model_name': model_name,
-        'recon_adata': out_recon_path,
-    })
+    pprint(outputs)
 
 
 if __name__ == '__main__':

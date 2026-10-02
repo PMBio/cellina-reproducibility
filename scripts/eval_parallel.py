@@ -20,7 +20,7 @@ import glob
 from pathlib import Path
 import time
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EVAL_SCRIPT = SCRIPT_DIR / "eval_loo.py"
@@ -28,7 +28,7 @@ LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
 
 # Populate these lists manually
-DATASET_NAME = "merfish"  # or "merfish"
+DATASET_NAME = "crc"  # or "merfish"
 
 CRC_PATHS = [
     os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo/crc_210.h5ad"),
@@ -40,11 +40,11 @@ CRC_PATHS = [
 ]
 
 CRC_HOLDOUTS = [
-    "Endothelial",
-    "Epithelial",
+    #"Endothelial",
+    #"Epithelial",
     "Fibroblast",
-    "Myeloid",
-    "T_cell",
+    #"Myeloid",
+    #"T_cell",
 ]
 
 MERFISH_PATHS = [
@@ -66,13 +66,16 @@ HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
 
 MODELS = [
     # Example entries: {"class": "cellina", "name": "cellina"}
-    {"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
-    {"class": "cellina", "name": "cellina-W", "extra_args": "--use_cf"},
-    {"class": "cellina", "name": "cellina-ablated-W", "extra_args": "--use_cf"},
-    {"class": "cellina_graph", "name": "cellina-graph-W", "extra_args": "--use_cf"},
-    {"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
-    {"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
-    {"class": "concert", "name": "concert", "extra_args": "--use_cf"},
+    #{"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
+    #{"class": "cellina", "name": "cellina-W", "extra_args": "--use_cf"},
+    #{"class": "cellina", "name": "cellina-ablated-W", "extra_args": "--use_cf"},
+    #{"class": "cellina_graph", "name": "cellina-graph-W", "extra_args": "--use_cf"},
+    #{"class": "cpa", "name": "cpa", "extra_args": "--use_cf"},
+    #{"class": "scgen", "name": "scgen", "extra_args": "--use_cf"},
+    #{"class": "concert", "name": "concert", "extra_args": "--use_cf"},
+    # Node perturbation (needs train_loo.py --perturbation node outputs first)
+    {"class": "cellina", "name": "cellina-cr", "extra_args": "--use_cf --perturbation both"},
+    #{"class": "cellina_graph", "name": "cellina-graph-W", "extra_args": "--use_cf --perturbation node"},
 ]
 
 
