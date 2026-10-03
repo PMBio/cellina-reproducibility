@@ -1,0 +1,13 @@
+{
+  "dataset": "crc",
+  "sid": "crc_242",
+  "cell_type": "T_cell",
+  "model_name": "cellina112_0",
+  "train_mode": "full",
+  "train_wall_seconds": 3385,
+  "max_rss_gib": 51.666,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "slurm_job_id": "62514516_24",
+  "node": "gpu35",
+  "n_metric_json": 1
+}

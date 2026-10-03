@@ -1,0 +1,13 @@
+{
+  "dataset": "merfish",
+  "sid": "C57BL6J-2.036",
+  "cell_type": "glutamatergic neuron",
+  "model_name": "cellina112_1",
+  "train_mode": "full",
+  "train_wall_seconds": 125,
+  "max_rss_gib": 4.46,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "slurm_job_id": "62529241_1",
+  "node": "gpu36",
+  "n_metric_json": 2
+}

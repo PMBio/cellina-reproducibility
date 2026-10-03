@@ -1,0 +1,15 @@
+C57BL6J-2.036	glutamatergic neuron
+C57BL6J-2.036	oligodendrocyte
+C57BL6J-2.036	astrocyte
+C57BL6J-2.036	GABAergic neuron
+C57BL6J-2.036	endothelial cell
+C57BL6J-2.039	glutamatergic neuron
+C57BL6J-2.039	oligodendrocyte
+C57BL6J-2.039	astrocyte
+C57BL6J-2.039	GABAergic neuron
+C57BL6J-2.039	endothelial cell
+C57BL6J-2.041	glutamatergic neuron
+C57BL6J-2.041	oligodendrocyte
+C57BL6J-2.041	astrocyte
+C57BL6J-2.041	GABAergic neuron
+C57BL6J-2.041	endothelial cell

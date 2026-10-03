@@ -1,0 +1,13 @@
+{
+  "dataset": "crc",
+  "sid": "crc_231",
+  "cell_type": "T_cell",
+  "model_name": "cellina112_0",
+  "train_mode": "full",
+  "train_wall_seconds": 1194,
+  "max_rss_gib": 29.83,
+  "gpu_name": "NVIDIA A100-PCIE-40GB",
+  "slurm_job_id": "62514516_14",
+  "node": "gpu28",
+  "n_metric_json": 1
+}

@@ -228,3 +228,6 @@ notebooks/neighb_perts/results/
 data/
 pretrained/
 notebooks/in_vivo/terra_pfish/
+# cellina 1.1.2 LOO sweep evidence (small metric/timing JSONs + per-fold CSVs); see scripts/cellina112_loo/README.md
+!results/cellina112_loo/**/*.json
+!results/cellina112_loo/**/*.csv

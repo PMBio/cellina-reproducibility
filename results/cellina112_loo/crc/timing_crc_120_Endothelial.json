@@ -1,0 +1,13 @@
+{
+  "dataset": "crc",
+  "sid": "crc_120",
+  "cell_type": "Endothelial",
+  "model_name": "cellina112_0",
+  "train_mode": "full",
+  "train_wall_seconds": 8025,
+  "max_rss_gib": 85.9,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "slurm_job_id": "62514516_25",
+  "node": "gpu36",
+  "n_metric_json": 1
+}

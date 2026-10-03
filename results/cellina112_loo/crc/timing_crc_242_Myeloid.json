@@ -1,0 +1,13 @@
+{
+  "dataset": "crc",
+  "sid": "crc_242",
+  "cell_type": "Myeloid",
+  "model_name": "cellina112_0",
+  "train_mode": "full",
+  "train_wall_seconds": 3835,
+  "max_rss_gib": 51.439,
+  "gpu_name": "NVIDIA A40",
+  "slurm_job_id": "62514516_23",
+  "node": "sb03-11",
+  "n_metric_json": 1
+}

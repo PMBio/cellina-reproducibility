@@ -25,7 +25,8 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(_REPO_ROOT, "data"))  # env-driven; defaults to <repo>/data
 
 from pprint import pprint
 
@@ -66,8 +67,27 @@ def parse_args():
     p.add_argument("--model_name", default=None, help="folder name for saving model and outputs")
     p.add_argument("--inference_only", action='store_true', help="Skip training and only do inference on trained model (default False)")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument("--cf_spatial_layer", type=str, default="lognorm",
+                   help="adata.layers key aggregated when building cellina edge-perturbation "
+                        "counterfactual spatial features (precomputed=False). Must match the "
+                        "representation the training spatial_x was built from. Pass 'none' to "
+                        "aggregate adata.X instead (raw counts; pre-1.1.2 behaviour). "
+                        "Only used for --model_class cellina.")
+    p.add_argument("--model_name_suffix", type=str, default="",
+                   help="Suffix appended to the *output* h5ad basenames only (not to the model "
+                        "save dir), so --inference_only can write a second arm from the same "
+                        "trained model.")
 
     return p.parse_args()
+
+
+def _resolve_cf_spatial_layer(value):
+    """Map the CLI value to the `layer=` argument of cellina's counterfactual helpers."""
+    if value is None:
+        return None
+    if str(value).strip().lower() in ('none', ''):
+        return None
+    return value
 
 
 def _to_array(x):
@@ -237,6 +257,9 @@ def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_in
         compute_spatial_features(adata)
     except Exception as e:
         print("Warning: cellina spatial pre-processing failed or cellina not available:", e)
+    # Keep the normalized (log1p CP10K) representation the training spatial_x was built
+    # from, so counterfactual spatial features can be aggregated on the same scale.
+    adata.layers['lognorm'] = adata.X.copy()
     adata.X = adata.layers['counts'].copy()
     return adata
 
@@ -495,7 +518,8 @@ def run_inference(model,
                   extras={},
                   control_domains=DEFAULT_CTRL_DOMAINS,
                   holdout_domains=DEFAULT_HOLDOUT_DOMAINS,
-                  seed=DEFAULT_SEED,):
+                  seed=DEFAULT_SEED,
+                  cf_spatial_layer=None,):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
 
     print("Running inference and saving outputs...")
@@ -636,6 +660,10 @@ def run_inference(model,
                     args_gex["n_neighbors_per_seed"] = N_NEIGHBORS_PER_SEED
                 else:
                     args_gex['precomputed'] = False
+                    # aggregate the same representation the training spatial_x was built from
+                    args_gex['layer'] = cf_spatial_layer
+                    _src = 'adata.X' if cf_spatial_layer is None else "adata.layers['%s']" % cf_spatial_layer
+                    print('Counterfactual spatial features aggregated from', _src)
                 
                 cf_counts = model.get_counterfactual_expression(**args_gex)
                 args_latents = args_gex.copy()
@@ -799,14 +827,19 @@ def main():
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
     # preprocess spatial features after splitting to avoid data leakage in spatial features for test set
-    step_size_px = 0.12028 if dataset_name == 'crc' else 0.109
+    step_size_px = 0.12028 if dataset_name == 'crc' else 1  # matches scripts/train_loo.py (main)
     adata = preprocess_spatial_features(adata, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=test_idx)
 
     # decide whether to run counterfactuals from config default
     do_cf = bool(do_cf_default)
 
     # prepare save dir for model
+    # `model_name` identifies the *trained model* (seed-suffixed) and drives the save dir;
+    # `out_name` additionally carries --model_name_suffix and drives the output h5ad basenames
+    # only, so a second inference arm can reuse the same trained model.
     model_name = f'{model_name}_{seed}'
+    out_name = f'{model_name}{args.model_name_suffix}'
+    cf_spatial_layer = _resolve_cf_spatial_layer(args.cf_spatial_layer)
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -839,7 +872,7 @@ def main():
                                     adata,
                                     args.adata_path,
                                     args.model_class,
-                                    model_name,
+                                    out_name,
                                     args.holdout_celltype,
                                     do_cf=do_cf,
                                     batch_size=batch_size,
@@ -850,12 +883,15 @@ def main():
                                     control_domains=control_domains,
                                     holdout_domains=holdout_domains,
                                     seed=seed,
+                                    cf_spatial_layer=cf_spatial_layer,
                                     )
 
     print("Done. Outputs:")
     pprint({
         'save_dir': save_dir,
         'model_name': model_name,
+        'out_name': out_name,
+        'cf_spatial_layer': cf_spatial_layer,
         'recon_adata': out_recon_path,
     })
 

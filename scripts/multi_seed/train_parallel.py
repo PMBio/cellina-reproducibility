@@ -22,7 +22,8 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(_REPO_ROOT, "data"))  # env-driven; defaults to <repo>/data
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
