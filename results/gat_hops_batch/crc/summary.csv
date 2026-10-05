@@ -1,0 +1,10 @@
+arm,domain,n,Pearson_mean,Pearson_std,Signed precision_mean,Signed precision_std,E-distance_mean,E-distance_std,RMSE_LFC_mean,RMSE_LFC_std
+h1-b256,CRC,30,0.8263,0.1481,0.3847,0.2096,9.1948,1.9162,1.2059,0.708
+h1-b256,average,30,0.8263,0.1481,0.3847,0.2096,9.1948,1.9162,1.2059,0.708
+h1k20-b256,CRC,30,0.844,0.1256,0.3867,0.2013,9.0071,1.634,1.2043,0.6269
+h1k20-b256,average,30,0.844,0.1256,0.3867,0.2013,9.0071,1.634,1.2043,0.6269
+main 2-layer (reference),average,,0.84,0.13,0.36,0.2,7.78,1.41,1.24,0.69
+
+arm,folds,median_train_wall_s,peak_gpu_mib,median_peak_gpu_mib,median_max_rss_gib,gpu
+h1-b256,30,7784.0,4366,4057.5,21.06,"NVIDIA GeForce RTX 3090, NVIDIA L40S"
+h1k20-b256,30,3481.0,1267,1241.0,20.93,"NVIDIA A100-PCIE-40GB, NVIDIA GeForce RTX 3090, NVIDIA L40S"

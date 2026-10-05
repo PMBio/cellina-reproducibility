@@ -228,3 +228,6 @@ notebooks/neighb_perts/results/
 data/
 pretrained/
 notebooks/in_vivo/terra_pfish/
+
+# GAT hops/batch-size sweep summaries (results/gat_hops_batch) are tracked
+!results/gat_hops_batch/**/*.csv
