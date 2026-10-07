@@ -414,6 +414,14 @@ def train_model(adata, model_class, model_args, train_args, save_dir, plan_kwarg
         train_args['datasplitter_kwargs'] = {
                   "external_indexing": [splits[0], splits[1], splits[2]],
                   }
+        # A trailing train minibatch with a single seed cell makes BatchNorm raise
+        # (e.g. MERFISH C57BL6J-2.041 / oligodendrocyte: n_train=38657 = 1 mod 256).
+        # Drop it only for such folds so all other folds train exactly as before.
+        # NOTE: GraphJointDataSplitter also applies drop_last to the val/test loaders.
+        bs = train_args.get('batch_size', 128)
+        if len(splits[0]) % bs == 1:
+            print(f"n_train={len(splits[0])} = 1 mod batch_size={bs}; setting drop_last=True")
+            train_args['datasplitter_kwargs']['drop_last'] = True
         if plan_kwargs is not None:
             model.train(**train_args, plan_kwargs=plan_kwargs)
         else:

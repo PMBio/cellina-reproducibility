@@ -8,16 +8,17 @@ MODEL_ARGS = {
     "classifier_lambda": 1.0,
     "discriminator_lambda": 1.0,
     "link_prediction_weight": 1.0,
-    "n_layers": 2,
+    "n_layers": 3,
     "convolution_type": 'gat',
     "gene_likelihood": 'nb',
+    "num_neighbors": [50, 0, 0]
 }
 
 # Train args mirror the notebook settings. Some keys (like datasplitter external_indexing)
 # will be populated at runtime by train_loo if needed.
 TRAIN_ARGS = {
     "max_epochs": 100,
-    "batch_size": 512,
+    "batch_size": 256,
     "check_val_every_n_epoch": 1,
     "early_stopping": True,
     "early_stopping_patience": 10,
@@ -36,4 +37,4 @@ PLAN_KWARGS = {
 # Enable counterfactual behaviour by default for Cellina
 DO_COUNTERFACTUAL = True
 N_NEIGHBORS_PER_SEED = 50  # number of neighbors to use when sampling for counterfactual inference in cellina-graph (matches notebooks)
-N_NEIGHBORS_GRAPH = 20 # number of neighbors to compute adjacency matrix
+N_NEIGHBORS_GRAPH = 50 # number of neighbors to compute adjacency matrix
