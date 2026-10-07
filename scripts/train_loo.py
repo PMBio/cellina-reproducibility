@@ -25,7 +25,7 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
 
 from pprint import pprint
 
@@ -71,8 +71,23 @@ def parse_args():
                    help="Counterfactual type. 'edge' (default) swaps the neighbourhood; 'node' perturbs neighbour "
                         "expression with domain logFCs (cellina / cellina_graph only, loads the trained model - no training); "
                         "'both' runs edge then node (node skipped for other model classes)")
+    p.add_argument("--cf_spatial_layer", type=str, default="lognorm",
+                help="adata.layers key aggregated when building cellina edge-perturbation "
+                    "counterfactual spatial features (precomputed=False). Must match the "
+                    "representation the training spatial_x was built from. Pass 'none' to "
+                    "aggregate adata.X instead (raw counts; pre-1.1.2 behaviour). "
+                    "Only used for --model_class cellina.")
 
     return p.parse_args()
+
+
+def _resolve_cf_spatial_layer(value):
+    """Map the CLI value to the `layer=` argument of cellina's counterfactual helpers."""
+    if value is None:
+        return None
+    if str(value).strip().lower() in ('none', ''):
+        return None
+    return value
 
 
 def _to_array(x):
@@ -242,6 +257,9 @@ def preprocess_spatial_features(adata, step_size_px=0.1, n_neighbors=50, test_in
         compute_spatial_features(adata)
     except Exception as e:
         print("Warning: cellina spatial pre-processing failed or cellina not available:", e)
+    # Keep the normalized (log1p CP10K) representation the training spatial_x was built
+    # from, so counterfactual spatial features can be aggregated on the same scale.
+    adata.layers['lognorm'] = adata.X.copy()
     adata.X = adata.layers['counts'].copy()
     return adata
 
@@ -499,7 +517,8 @@ def run_inference(model,
                   return_normalized=False,
                   extras={},
                   control_domains=DEFAULT_CTRL_DOMAINS,
-                  holdout_domains=DEFAULT_HOLDOUT_DOMAINS):
+                  holdout_domains=DEFAULT_HOLDOUT_DOMAINS,
+                  cf_spatial_layer=None,):
     """Run reconstructions for full adata and optional counterfactuals. Returns paths."""
 
     print("Running inference and saving outputs...")
@@ -636,6 +655,10 @@ def run_inference(model,
                     args_gex['anchor_donors'] = False
                     args_gex["neighbour_indices"] = neighbor_indices
                     args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED
+                    # aggregate the same representation the training spatial_x was built from
+                    args_gex['layer'] = cf_spatial_layer
+                    _src = 'adata.X' if cf_spatial_layer is None else "adata.layers['%s']" % cf_spatial_layer
+                    print('Counterfactual spatial features aggregated from', _src)
                     
                 
                 cf_counts = model.get_counterfactual_expression(**args_gex)
@@ -905,6 +928,9 @@ def main():
     # decide whether to run counterfactuals from config default
     do_cf = bool(do_cf_default)
 
+    # Resolve counterfactual spatial layer if provided (for cellina base)
+    cf_spatial_layer = _resolve_cf_spatial_layer(args.cf_spatial_layer)
+
     # prepare save dir for model
     save_dir = os.path.join(MODEL_ROOT, sid, args.holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
@@ -934,7 +960,7 @@ def main():
 
     # inference
     batch_size = train_args.get('batch_size', DEFAULT_BATCH_SIZE)
-    outputs = {'save_dir': save_dir, 'model_name': model_name}
+    outputs = {'save_dir': save_dir, 'model_name': model_name, 'cf_spatial_layer': cf_spatial_layer}
     if run_edge:
         outputs['output_paths'] = run_inference(model,
                                     adata,
@@ -950,6 +976,7 @@ def main():
                                     extras=extras,
                                     control_domains=control_domains,
                                     holdout_domains=holdout_domains,
+                                    cf_spatial_layer=cf_spatial_layer,
                                     )
     if run_node:
         outputs['node_counterfactuals'] = run_node_perturbation(model,
