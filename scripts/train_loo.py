@@ -25,7 +25,7 @@ import anndata as ad
 import sys
 import torch
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
 
 from pprint import pprint
 
@@ -660,10 +660,9 @@ def run_inference(model,
                     args_gex["n_neighbors"] = CELLINA_GRAPH_N_NEIGHBORS_PER_SEED
                     args_gex['connectivity_key'] = "spatial_connectivities_orig"
                 else:
-                    args_gex['anchor_donors'] = False
-                    args_gex["neighbour_indices"] = neighbor_indices
-                    args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED
-                    # aggregate the same representation the training spatial_x was built from
+                    args_gex['anchor_donors'] = True
+                    args_gex["neighbour_indices"] = idx_target #neighbor_indices
+                    args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED                    # aggregate the same representation the training spatial_x was built from
                     args_gex['layer'] = cf_spatial_layer
                     _src = 'adata.X' if cf_spatial_layer is None else "adata.layers['%s']" % cf_spatial_layer
                     print('Counterfactual spatial features aggregated from', _src)
