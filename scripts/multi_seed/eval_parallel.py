@@ -63,17 +63,12 @@ MERFISH_HOLDOUTS = [
 
 PATHS = CRC_PATHS if DATASET_NAME == "crc" else MERFISH_PATHS
 HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
-SEED = 1
+SEED = int(os.environ.get("SEED", 1))  # overridden by run_multi_seed.sh
 
 MODELS = [
-    # Example entries: {"class": "cellina", "name": "cellina"}
-    #{"class": "baseline", "name": "baseline", "extra_args": "--use_cf"},
-    {"class": "cellina", "name": f"cellina-W_{SEED}", "extra_args": "--use_cf"},
-    #{"class": "cellina", "name": "cellina-ablated", "extra_args": "--use_cf"},
-    #{"class": "cellina_graph", "name": "cellina-graph", "extra_args": "--use_cf"},
-    {"class": "cpa", "name": f"cpa_{SEED}", "extra_args": "--use_cf"},
-    {"class": "scgen", "name": f"scgen_{SEED}", "extra_args": "--use_cf"},
-    #{"class": "concert", "name": "concert", "extra_args": "--use_cf"},
+    #{"class": "cpa", "name": f"cpa_{SEED}", "extra_args": "--use_cf"},
+    #{"class": "scgen", "name": f"scgen_{SEED}", "extra_args": "--use_cf"},
+    {"class": "cellina", "name": f"cellina-cr_{SEED}", "extra_args": "--use_cf --perturbation edge"},
 ]
 
 

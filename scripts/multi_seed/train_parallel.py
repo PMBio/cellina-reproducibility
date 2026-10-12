@@ -28,7 +28,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
 LOG_ROOT = SCRIPT_DIR / "parallel_logs"
 PY = sys.executable
-SEED = 2
+SEED = int(os.environ.get("SEED", 1))  # overridden by run_multi_seed.sh
 
 # Define lists here (populate manually)
 # The user will edit these lists directly in the script before running.
@@ -73,15 +73,9 @@ HOLDOUTS = CRC_HOLDOUTS if DATASET_NAME == "crc" else MERFISH_HOLDOUTS
 MODELS = [
     # Use a list of dicts so each model_class can have an associated model_name.
     # Populate these entries directly. Example:
-    #{"class": "cellina", "name": "cellina", "extra_args": "--inference_only"},
-    {"class": "cellina", "name": "cellina-W", "extra_args": f"--inference_only --seed {SEED}"},
-    {"class": "cpa", "name": "cpa", "extra_args": f"--inference_only --seed {SEED}"},
-    {"class": "scgen", "name": "scgen", "extra_args": f"--inference_only --seed {SEED}"},
-    #{"class": "scgen", "name": "scgen", "extra_args": "--inference_only"},
-    #{"class": "concert", "name": "concert"},
-    #{"class": "cellina_graph", "name": "cellina-graph"},
-    #{"class": "cellina", "name": "cellina-ablated-W"},
-    #{"class": "cellina_graph", "name": "cellina-graph-W"},
+    #{"class": "cpa", "name": "cpa", "extra_args": f"--inference_only --seed {SEED}"},
+    #{"class": "scgen", "name": "scgen", "extra_args": f"--inference_only --seed {SEED}"},
+    {"class": "cellina", "name": "cellina-cr", "extra_args": f"--seed {SEED} --perturbation edge"},
 ]
 
 
