@@ -662,7 +662,9 @@ def run_inference(model,
                 else:
                     args_gex['anchor_donors'] = True
                     args_gex["neighbour_indices"] = idx_target #neighbor_indices
-                    args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED                    # aggregate the same representation the training spatial_x was built from
+                    args_gex['exclude_indices'] = np.where(is_holdout_ct.values)[0]
+                    args_gex["n_neighbors"] = CELLINA_N_NEIGHBORS_PER_SEED  
+                    args_gex['connectivity_key'] = "spatial_connectivities_orig"                  # aggregate the same representation the training spatial_x was built from
                     args_gex['layer'] = cf_spatial_layer
                     _src = 'adata.X' if cf_spatial_layer is None else "adata.layers['%s']" % cf_spatial_layer
                     print('Counterfactual spatial features aggregated from', _src)
