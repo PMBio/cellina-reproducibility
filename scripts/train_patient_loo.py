@@ -16,11 +16,18 @@ holds out a patient AND a cell type jointly:
    (spearman/pearson/precision/direction-match/mixing-index/e-distance/rmse)
    for the held-out patient, as in the notebook
 
+Cellina follows the camera-ready LOO conventions of train_loo.py (cellina >= 1.2.0):
+ - training obsm['spatial_x'] is rebuilt slide by slide after the split, with the test cells
+   masked out of the spatial graph (the stored, unmasked obsm['spatial_x'] is not used)
+ - the counterfactual uses anchor donors: anchors = held-out-type target cells,
+   'spatial_connectivities_orig', every held-out-type cell excluded, n_neighbors =
+   N_NEIGHBORS_PER_SEED, layer 'lognorm' (as train_loo.run_inference)
+
 Usage (example):
 
 python scripts/train_patient_loo.py \
   --dataset_name crc \
-  --adata_path /data2/a330d/datasets/crc/processed/crc_cosmx_wt.h5ad \
+  --adata_path $DATA_ROOT/datasets/crc/processed/crc_cosmx_wt.h5ad \
   --holdout_sid 210 \
   --holdout_celltype Fibroblast \
   --model_class cellina \
@@ -29,7 +36,7 @@ python scripts/train_patient_loo.py \
 
 Outputs:
  - trained model saved under <DATA_ROOT>/data/ood/trained/loo_patients/{holdout_sid}/{holdout_celltype}/{model_name}/
- - per-job metrics CSV saved to results/loo_patient/{dataset_name}_DEG_{n_deg}_sid{holdout_sid}_ct{holdout_celltype}_{model_name}.csv
+ - per-job metrics CSV saved to --results_dir (default results/loo_patient/){dataset_name}_DEG_{n_deg}_sid{holdout_sid}_ct{holdout_celltype}_{model_name}.csv
    (one CSV per job, since concurrent processes can't safely append to a shared
    file; merge afterward with e.g. pandas.concat over glob("results/loo_patient/*.csv"))
 """
@@ -42,8 +49,10 @@ import pandas as pd
 import scanpy as sc
 import anndata as ad
 import h5py
+import gc
+import scipy.sparse as sp
 
-DATA_ROOT = '/data2/a330d'  # os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
 
 from pprint import pprint
 from pathlib import Path
@@ -79,6 +88,7 @@ from train_loo import (
 # Import configs
 sys.path.append('./scripts')
 from configs.cellina_config import MODEL_ARGS as CELLINA_MODEL_ARGS, TRAIN_ARGS as CELLINA_TRAIN_ARGS, PLAN_KWARGS as CELLINA_PLAN_KWARGS
+from configs.cellina_config import N_NEIGHBORS_PER_SEED
 from configs.cpa_config import MODEL_ARGS as CPA_MODEL_ARGS, TRAIN_ARGS as CPA_TRAIN_ARGS, PLAN_KWARGS as CPA_PLAN_KWARGS
 from configs.adata_crc_config import ADATA_ARGS as ADATA_CRC_ARGS
 from configs.adata_merfish_config import ADATA_ARGS as ADATA_MERFISH_ARGS
@@ -96,6 +106,7 @@ def parse_args():
     p.add_argument("--exclude_sids", default="", help="Comma-separated batch_key values to drop from adata before splitting (e.g. QC-failed slides)")
     p.add_argument("--n_deg", type=int, default=DEFAULT_N_DEG)
     p.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
+    p.add_argument("--results_dir", default=str(RESULTS_ROOT), help="Directory for the per-job metrics CSV")
     return p.parse_args()
 
 
@@ -114,9 +125,9 @@ def load_adata_lean(adata_path, need_spatial):
     obsm['spatial_x'] that alone decompresses to ~40GB (it's ~73% dense but stored as
     sparse CSR with int64 indices). A full sc.read() pulls all of that into memory
     before split_indices ever runs, which is enough to OOM well before training starts.
-    Only X, layers['counts'], obs, var, uns, and (for the cellina model, which needs
-    them for setup_anndata/preprocess_spatial_features) obsm['spatial']/['spatial_x']
-    are read here.
+    Only X, layers['counts'], obs, var, uns, and (for the cellina model) obsm['spatial']
+    are read here; cellina's obsm['spatial_x'] is rebuilt after the split with the test
+    cells masked (masked_spatial_x).
     """
     with h5py.File(adata_path, 'r') as f:
         adata = ad.AnnData(X=_read_elem(f['X']), obs=_read_elem(f['obs']), var=_read_elem(f['var']))
@@ -125,10 +136,46 @@ def load_adata_lean(adata_path, need_spatial):
         if 'layers' in f and 'counts' in f['layers']:
             adata.layers['counts'] = _read_elem(f['layers']['counts'])
         if need_spatial and 'obsm' in f:
-            for key in ('spatial', 'spatial_x'):
-                if key in f['obsm']:
-                    adata.obsm[key] = _read_elem(f['obsm'][key])
+            adata.obsm['spatial'] = _read_elem(f['obsm']['spatial'])
     return adata
+
+
+def masked_spatial_x(adata, test_idx, batch_key, step_size_px, n_neighbors):
+    """obsm['spatial_x'] rebuilt slide by slide with test_idx masked out of the spatial graph,
+    as train_loo.preprocess_spatial_features does for one slide (log1p CP10K expression,
+    bandwidth 100/step_size_px, at most n_neighbors). A slide whose cells are all test cells
+    (the held-out slide) gets all-zero rows."""
+    from cellina._spatial_utils import spatial_neighbors, compute_spatial_features
+    is_test = np.zeros(adata.n_obs, dtype=bool)
+    is_test[test_idx] = True
+    blocks, order = [], []
+    for sid in adata.obs[batch_key].unique():
+        idx = np.where((adata.obs[batch_key] == sid).values)[0]
+        local_test = np.where(is_test[idx])[0]
+        order.append(idx)
+        if len(local_test) == len(idx):
+            blocks.append(sp.csr_matrix((len(idx), adata.n_vars), dtype=np.float32))
+            continue
+        sub = ad.AnnData(X=sp.csr_matrix(adata.layers['counts'][idx], dtype=np.float32))
+        sub.obsm['spatial'] = np.asarray(adata.obsm['spatial'][idx])
+        sc.pp.normalize_total(sub, target_sum=1e4)
+        sc.pp.log1p(sub)
+        spatial_neighbors(sub, bandwidth=100 / step_size_px, max_neighbours=n_neighbors,
+                          standardize=False, test_indices=local_test)
+        compute_spatial_features(sub)
+        blocks.append(sub.obsm['spatial_x'])
+        print(f"  spatial_x slide {sid}: {len(idx)} cells, {len(local_test)} masked")
+        del sub
+        gc.collect()
+    order = np.concatenate(order)
+    stacked = sp.vstack(blocks, format='csr')
+    del blocks
+    gc.collect()
+    if np.array_equal(order, np.arange(len(order))):  # slides already contiguous: skip the reorder copy
+        return stacked
+    inv = np.empty_like(order)
+    inv[order] = np.arange(len(order))
+    return stacked[inv]
 
 
 def split_indices(adata, holdout_sid, holdout_celltype, batch_key=DEFAULT_BATCH_KEY,
@@ -256,7 +303,7 @@ def load_model(save_dir, model_class, adata, splits=None):
     return model
 
 
-def generate_counterfactual(model, adata_holdout, model_class, idx_control, neighbor_indices, hd, batch_size,
+def generate_counterfactual(model, adata_holdout, model_class, idx_control, idx_target, exclude_indices, hd, batch_size,
                              adata_train=None, domains_key=None):
     """Generate raw-count-scale counterfactual expression for idx_control cells shifted towards domain hd."""
     mc = model_class.lower()
@@ -278,13 +325,18 @@ def generate_counterfactual(model, adata_holdout, model_class, idx_control, neig
         return cf_counts
 
     if mc == 'cellina':
+        # anchor donors, as train_loo.run_inference
         args_gex = {
             "adata": adata_holdout,
             "indices": idx_control,
             "batch_size": batch_size,
             "seed": 0,
-            "neighbour_indices": neighbor_indices,
-            "precomputed": False,
+            "anchor_donors": True,
+            "neighbour_indices": idx_target,
+            "exclude_indices": exclude_indices,
+            "n_neighbors": N_NEIGHBORS_PER_SEED,
+            "connectivity_key": "spatial_connectivities_orig",
+            "layer": "lognorm",
         }
         cf_counts = model.get_counterfactual_expression(**args_gex)
         return _to_dense(cf_counts)
@@ -313,6 +365,10 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
     mc = model_class.lower()
     adata_train = adata[adata.obs['is_holdout'] == False] if mc == 'baseline' else None
 
+    # compute_edistance only reads X and obs['is_holdout']; its use_pca branch copies adata[~is_holdout],
+    # which on the full adata also copies layers and obsm['spatial_x']. A lean view gives the same metrics.
+    adata_ed = ad.AnnData(X=adata.X, obs=adata.obs[['is_holdout']], var=adata.var)
+
     print(f"{'='*50} Holdout celltype: {holdout_celltype} {'='*50}")
     is_control_region = adata_holdout.obs[domains_key] == control_domain
     is_holdout_ct = adata_holdout.obs[labels_key].astype(str) == holdout_celltype
@@ -328,16 +384,11 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
             print(f"Skipping {holdout_celltype}/{hd}: no target or control cells found for slide {holdout_sid}")
             continue
         if mc == 'cellina':
-            # Recompute spatial connectivities masking this iteration's test indices, to avoid data leakage
+            # spatial_x masked at idx_target; also sets spatial_connectivities_orig (unmasked) and layers['lognorm']
             preprocess_spatial_features(adata_holdout, step_size_px=step_size_px, n_neighbors=n_neighbors, test_indices=idx_target)
-            conn = adata_holdout.obsp["spatial_connectivities_orig"]
-            sub_conn = conn[idx_target]
-            neighbor_indices = np.unique(sub_conn.nonzero()[1])
-            neighbor_indices = neighbor_indices[~is_holdout_ct.values[neighbor_indices]]
-        else:
-            neighbor_indices = None
 
-        counterfactual = generate_counterfactual(model, adata_holdout, model_class, idx_control, neighbor_indices, hd, batch_size,
+        counterfactual = generate_counterfactual(model, adata_holdout, model_class, idx_control, idx_target,
+                                                  np.where(is_holdout_ct.values)[0], hd, batch_size,
                                                   adata_train=adata_train, domains_key=domains_key)
 
         control = _to_dense(adata_holdout.layers['counts'][mask_control.values, :])
@@ -352,10 +403,10 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
         dir_match_k = direction_match(gt_lfc, cf_lfc, k=n_deg, normalize="k")
         dir_match_gt = direction_match(gt_lfc, cf_lfc, k=n_deg, normalize="gt_topk")
         mix_idx = mixing_index(observed=target, predicted=counterfactual, library_size=COUNTS_PER_K)
-        edist_global = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K)
-        edist_local = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True)
-        edist_pca_log = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True)
-        edist_pca = compute_edistance(adata, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
+        edist_global = compute_edistance(adata_ed, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K)
+        edist_local = compute_edistance(adata_ed, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True)
+        edist_pca_log = compute_edistance(adata_ed, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True)
+        edist_pca = compute_edistance(adata_ed, observed=target, predicted=counterfactual, deg=None, library_size=COUNTS_PER_K, local=True, use_pca=True, log1p=False)
         rmse = compute_rmse(observed=target, predicted=counterfactual, deg=deg, library_size=COUNTS_PER_K)
         mse_lfc = compute_mse_lfc(gt_vec=gt_lfc, cf_vec=cf_lfc, deg=deg)
         nb_deviance = nb_deviance_pop_mean(obs_X=target, pred_X=counterfactual)
@@ -386,7 +437,6 @@ def evaluate_patient(adata, model, model_class, model_name, holdout_sid, dataset
             )
         )
 
-    import gc
     gc.collect()
 
     return pd.DataFrame(results)
@@ -449,6 +499,9 @@ def main():
     splits = (train_idx, val_idx, test_idx)
     print(f"n_obs={adata.n_obs} train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
+    if mc == 'cellina':
+        adata.obsm['spatial_x'] = masked_spatial_x(adata, test_idx, batch_key, step_size_px, n_neighbors)
+
     save_dir = os.path.join(MODEL_ROOT, holdout_sid, holdout_celltype, model_name)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -467,9 +520,10 @@ def main():
                                    control_domain, holdout_domains, args.batch_size, args.n_deg,
                                    step_size_px, n_neighbors)
 
-    RESULTS_ROOT.mkdir(parents=True, exist_ok=True)
+    results_dir = Path(args.results_dir)
+    results_dir.mkdir(parents=True, exist_ok=True)
     ct_slug = holdout_celltype.replace(' ', '_')
-    out_path = RESULTS_ROOT / f"{dataset_name}_DEG_{args.n_deg}_sid{holdout_sid}_ct{ct_slug}_{model_name}.csv"
+    out_path = results_dir / f"{dataset_name}_DEG_{args.n_deg}_sid{holdout_sid}_ct{ct_slug}_{model_name}.csv"
     df_results.to_csv(out_path, index=False)
 
     print("Done. Outputs:")
