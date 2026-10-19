@@ -13,7 +13,8 @@ from profiler import profile_training
 
 set_seed(0)
 
-ADATA_SAVE_PATH = "/data/a330d/datasets/crc/processed"
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+ADATA_SAVE_PATH = os.path.join(DATA_ROOT, "datasets/crc/processed")
 #SLIDES = ['120', '210', '221', '231', '232', '242']
 SLIDES = ['221', '231', '232', '242']
 LABELS_KEY = 'coarse_type'
@@ -26,7 +27,7 @@ CHECKPOINT_INTERVAL = 10
 X_POS = 'CenterX_global_px'
 Y_POS = 'CenterY_global_px'
 USE_WANDB = 'False'
-MODEL_OUTPUT_PATH = "/data/a330d/data/ood/trained/mintflow_joint"
+MODEL_OUTPUT_PATH = os.path.join(DATA_ROOT, "data/ood/trained/mintflow_joint")
 CSV_PATH = "./results/training_stats.csv"
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 

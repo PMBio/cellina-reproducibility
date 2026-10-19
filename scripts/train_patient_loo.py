@@ -52,7 +52,7 @@ import h5py
 import gc
 import scipy.sparse as sp
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 from pathlib import Path

@@ -18,7 +18,7 @@ import argparse
 import numpy as np
 import scanpy as sc
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from scipy.stats import pearsonr, spearmanr
 

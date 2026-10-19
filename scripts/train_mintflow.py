@@ -36,8 +36,9 @@ PATIENT_ID = DATA_ARGS.get('batch_key')
 N_NEIGHBORS = 5
 CHECKPOINT_INTERVAL = 10
 USE_WANDB = 'False'
-MODEL_OUTPUT_PATH = "/../../data/ood/trained"
-ADATA_SAVE_PATH = f"/../../datasets/{DATASET_NAME}/processed"
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
+MODEL_OUTPUT_PATH = os.path.join(DATA_ROOT, "data/ood/trained")
+ADATA_SAVE_PATH = os.path.join(DATA_ROOT, f"datasets/{DATASET_NAME}/processed")
 X_POS = 'CenterX_global_px'
 Y_POS = 'CenterY_global_px'
 

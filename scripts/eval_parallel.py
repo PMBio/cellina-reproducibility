@@ -20,7 +20,7 @@ import glob
 from pathlib import Path
 import time
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EVAL_SCRIPT = SCRIPT_DIR / "eval_loo.py"

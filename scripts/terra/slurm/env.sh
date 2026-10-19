@@ -11,7 +11,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 export TERRA_MODEL=${TERRA_MODEL:-lotfollahi-lab/TERRA-96M}   # 112M: see ../README.md
 export HF_HUB_OFFLINE=1          # TERRA-96M (and 112M) are pre-downloaded on the login node; compute nodes may lack egress
 export TQDM_DISABLE=1
-export PY=${PY:-/g/stegle/ddimitro/miniforge3/envs/terra/bin/python}
+export PY=${PY:-$(command -v python)}   # set PY to the terra env python (environments/terra.yml)
 export SLIDES=${SLIDES:-"crc_120 crc_210 crc_221 crc_231 crc_232 crc_242"}
 LOG=$REPO/scripts/terra/slurm/logs
 export LOG

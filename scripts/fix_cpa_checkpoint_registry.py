@@ -23,10 +23,10 @@ categorical_mapping) are untouched -- they were already correct at save time,
 since the mutation happens after they're computed.
 
 Usage:
-  python scripts/fix_cpa_checkpoint_registry.py --root /data2/a330d/data/ood/trained/loo_patients [--dry_run] [--no_backup]
+  python scripts/fix_cpa_checkpoint_registry.py --root $DATA_ROOT/data/ood/trained/loo_patients [--dry_run] [--no_backup]
 
 Run with the cpa_cuda conda env (needs torch):
-  /data/a330d/miniforge3/envs/cpa_cuda/bin/python scripts/fix_cpa_checkpoint_registry.py --root ...
+  conda run -n cpa_cuda python scripts/fix_cpa_checkpoint_registry.py --root ...
 """
 import argparse
 import shutil

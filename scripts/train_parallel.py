@@ -22,7 +22,7 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data2/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
@@ -244,7 +244,7 @@ def main():
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
-                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python" #os.environ.get("CONCERT_PYTHON", sys.executable)
+                    concert_python = os.environ.get("CONCERT_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':

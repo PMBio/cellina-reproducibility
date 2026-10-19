@@ -28,7 +28,7 @@ import sys
 sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 
-DATA_ROOT = os.environ.get("DATA_ROOT", "/data/a330d")  # env-driven; old workstation path as fallback
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 from pprint import pprint
 
@@ -276,10 +276,11 @@ def _build_concert_model(adata, model_args, batch_key, labels_key, domains_key, 
     """
     try:
         import sys
-        sys.path.append('/data/a330d/projects/CONCERT/src')
+        if 'CONCERT_SRC' in os.environ:
+            sys.path.append(os.environ['CONCERT_SRC'])
         from concert_map import CONCERT
     except Exception as e:
-        raise RuntimeError("CONCERT is not importable; ensure CONCERT code is on PYTHONPATH (see notebooks/concert.ipynb)") from e
+        raise RuntimeError("CONCERT is not importable; set CONCERT_SRC to CONCERT's src/ dir or put it on PYTHONPATH") from e
 
     # build pos (spatial + one-hot batch) and simple cell_atts matrix
     # spatial coords

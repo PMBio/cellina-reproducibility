@@ -22,7 +22,7 @@ import time
 import glob
 from pathlib import Path
 
-DATA_ROOT = '/data/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_loo.py"
@@ -229,15 +229,15 @@ def main():
                 cmd = make_cmd(p, DATASET_NAME, holdout, model_class, model_name, args.extra_args, model_extra)
                 # If the model class is 'cpa', run the command with the CPA env python directly
                 if model_class == 'cpa':
-                    cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python" #os.environ.get("CPA_PYTHON", sys.executable)
+                    cpa_python = os.environ.get("CPA_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
                 if model_class == 'concert':
-                    concert_python = "/data/a330d/miniforge3/envs/concert/bin/python" #os.environ.get("CONCERT_PYTHON", sys.executable)
+                    concert_python = os.environ.get("CONCERT_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = concert_python
                 if model_class == 'scgen':
-                    scgen_python = "/data/a330d/miniforge3/envs/scgen/bin/python" #os.environ.get("SCGEN_PYTHON", sys.executable)
+                    scgen_python = os.environ.get("SCGEN_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = scgen_python
 
