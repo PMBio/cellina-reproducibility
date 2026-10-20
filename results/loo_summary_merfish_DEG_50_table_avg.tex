@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering
+\caption{Leave-one-celltype-out performance (top 50 DEGs). Mean $\pm$ std across slides. Best per metric in \textbf{bold}.}
+\label{tab:loo_summary_merfish}
+\begin{tabular}{lcccccc}
+\toprule
+model_name & Pearson $\uparrow$ & Signed Precision $\uparrow$ & E-distance $\downarrow$ & RMSE\textsubscript{LFC} $\downarrow$ & NB Deviance $\downarrow$ \\
+\midrule
+mean shift & 0.43 $\pm$ 0.23 & 0.12 $\pm$ 0.09 & 25.18 $\pm$ 4.75 & 10.98 $\pm$ 2.78 & 2.78 $\pm$ 0.97 \\
+CPA & 0.82 $\pm$ 0.16 & 0.44 $\pm$ 0.13 & 6.53 $\pm$ 1.99 & 6.36 $\pm$ 4.71 & 0.05 $\pm$ 0.04 \\
+scGen & 0.77 $\pm$ 0.16 & 0.20 $\pm$ 0.14 & \textbf{5.73 $\pm$ 4.84} & 6.48 $\pm$ 3.97 & 0.33 $\pm$ 0.05 \\
+MintFlow & 0.81 $\pm$ 0.17 & 0.29 $\pm$ 0.16 & 19.52 $\pm$ 1.81 & 7.27 $\pm$ 5.43 & 2.44 $\pm$ 0.83 \\
+CONCERT & 0.77 $\pm$ 0.16 & 0.18 $\pm$ 0.15 & 24.91 $\pm$ 2.08 & 7.45 $\pm$ 4.99 & 0.19 $\pm$ 0.07 \\
+Cellina (ablated) & 0.81 $\pm$ 0.15 & 0.37 $\pm$ 0.15 & 8.33 $\pm$ 4.76 & 6.78 $\pm$ 4.54 & 0.08 $\pm$ 0.09 \\
+Cellina & 0.84 $\pm$ 0.16 & 0.51 $\pm$ 0.17 & 6.93 $\pm$ 0.83 & 6.08 $\pm$ 5.06 & 0.03 $\pm$ 0.02 \\
+Cellina-GAT & \textbf{0.84 $\pm$ 0.16} & \textbf{0.53 $\pm$ 0.17} & 7.67 $\pm$ 0.83 & \textbf{5.97 $\pm$ 5.07} & \textbf{0.02 $\pm$ 0.02} \\
+Cellina$_{node-pert}$ & 0.82 $\pm$ 0.15 & 0.42 $\pm$ 0.15 & 8.96 $\pm$ 2.92 & 6.65 $\pm$ 4.63 & 0.06 $\pm$ 0.07 \\
+Cellina-GAT$_{node-pert}$ & 0.83 $\pm$ 0.16 & 0.51 $\pm$ 0.16 & 8.61 $\pm$ 1.15 & 5.98 $\pm$ 4.98 & 0.03 $\pm$ 0.02 \\
+SpatialProp$_{node-pert}$ & 0.66 $\pm$ 0.14 & 0.04 $\pm$ 0.04 & 30.79 $\pm$ 5.18 & 8.18 $\pm$ 2.05 & 9.92 $\pm$ 5.36 \\
+\bottomrule
+\end{tabular}
+\end{table}

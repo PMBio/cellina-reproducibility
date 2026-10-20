@@ -291,7 +291,8 @@ def run_seed_cellina(adata_path, seed, variant, work_dir, device, save_mean,
         model = CellinaGCN(adata, n_latent=n_latent, use_observed_lib_size=True,
                             classifier_lambda=1.0,
                             discriminator_lambda=1.0, link_prediction_weight=1.0,
-                            n_layers=2, convolution_type="gat", gene_likelihood="nb")
+                            n_layers=3, convolution_type="gat", gene_likelihood="nb",
+                            num_neighbors=[mn, 0, 0])
 
     train_args = dict(
         max_epochs=max_epochs, batch_size=batch_size, check_val_every_n_epoch=1,

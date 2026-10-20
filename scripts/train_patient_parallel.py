@@ -33,7 +33,7 @@ import shlex
 import time
 from pathlib import Path
 
-DATA_ROOT = '/data2/a330d' #os.environ.get("DATA_ROOT", ".")
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TRAIN_SCRIPT = SCRIPT_DIR / "train_patient_loo.py"
@@ -217,7 +217,7 @@ def main():
 
                 cmd = make_cmd(ADATA_PATH, DATASET_NAME, holdout_sid, holdout_celltype, model_class, model_name, EXCLUDE_SIDS, args.extra_args, model_extra)
                 if model_class == 'cpa':
-                    cpa_python = "/data/a330d/miniforge3/envs/cpa_cuda/bin/python" #os.environ.get("CPA_PYTHON", sys.executable)
+                    cpa_python = os.environ.get("CPA_PYTHON", sys.executable)
                     if len(cmd) > 0:
                         cmd[0] = cpa_python
 

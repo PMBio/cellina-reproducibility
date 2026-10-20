@@ -83,7 +83,7 @@ from cellina import make_counterfactual_adata  # noqa: E402
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
-DATA_ROOT = "/data/a330d"
+DATA_ROOT = os.environ.get("DATA_ROOT", ".")
 SLIDE_ID = "crc_232"
 ADATA_PATH = os.path.join(DATA_ROOT, "datasets/crc/raw_zenodo", f"{SLIDE_ID}.h5ad")
 MODEL_ROOT = os.path.join(DATA_ROOT, "data/ood/trained")

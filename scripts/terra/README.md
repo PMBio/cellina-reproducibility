@@ -16,8 +16,8 @@ from the untouched Zenodo 15574384 record), HF cache `data/hf` (`HF_HOME`, jobs 
 
 ## Environment
 
-`environments/terra.yml` → `/g/stegle/ddimitro/miniforge3/envs/terra/bin/python` (`PY` in
-`slurm/env.sh`). `terra-st==0.1.13`, torch 2.5.1+cu121, geomloss, plus everything `eval_loo.py`
+`environments/terra.yml`; point `PY` (in
+`slurm/env.sh`, defaults to the `python` on `PATH`) at that env's interpreter. `terra-st==0.1.13`, torch 2.5.1+cu121, geomloss, plus everything `eval_loo.py`
 imports; `cellina` is absent, so `preprocess_spatial_features` warns and skips the spatial graph
 (`eval_loo.py` never uses it for scoring). **One GPU per job**: terra's fine-tune path has no DDP and
 `embed_dataset` hardcodes `cuda:0` (Slurm's `CUDA_VISIBLE_DEVICES` masking makes that the allocated
